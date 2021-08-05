@@ -20,6 +20,20 @@ FireStore 공식문서 : https://firebase.google.com/docs/firestore/query-data/g
 
 
 
+### 날씨 API - 파이썬 관련 게시글
+
+기상청_단기예보 조회서비스
+
+https://19-97.tistory.com/103
+
+https://ai-creator.tistory.com/31
+
+https://gosmcom.tistory.com/130
+
+
+
+
+
 # 서버측 Client 프로그램
 
 서버측에서 구동되는 MQTT Client 프로그램에 대해 다룹니다.

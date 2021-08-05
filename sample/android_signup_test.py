@@ -73,7 +73,7 @@ def callback(ch, method, properties, body):
 
 # 파이어베이스 프로젝트에 접속하기
 print("==========[Firebase Init]==========")
-cred = credentials.Certificate('./firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json')
+cred = credentials.Certificate('../firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json')
 firebase_admin.initialize_app(cred, {
 	'projectID': 'threeamericano',
 })
