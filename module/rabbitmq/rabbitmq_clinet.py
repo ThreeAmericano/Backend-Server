@@ -86,6 +86,7 @@ class RabbitmqClient:
 
 
 if __name__ == "__main__":
+    #아래는 테스트 코드입니다.
     rb = RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
     rb.connect_server()
     hello = rb.open_channel()
