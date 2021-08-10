@@ -80,8 +80,6 @@ __publish_queue__ (queue_name, message)
 
 
 
-
-
 __publish_exchange__ (ec, rk, message)
 
 ​	Routing Key를 이용하여 exchange에 메세지를 발행합니다.
@@ -95,8 +93,6 @@ __publish_exchange__ (ec, rk, message)
 
 
 
-
-
 __consume_setting__ (queue_name, cb_function)
 
 ​	메세지를 왔는지 확인할 큐 이름과, 메세지가 왔을 때 실행할 함수를 명시합니다. 이때 ack는 True로 설정되어있습니다.
@@ -105,8 +101,6 @@ __consume_setting__ (queue_name, cb_function)
 - cb_function : 메세지가 도착했을 때 실행할 callback 함수를 명시합니다.
 
 - return : `null`
-
-
 
 
 
@@ -129,8 +123,6 @@ __consume_stop__ ()
 
 
 
-
-
 __consume_auto__ (queue_name)
 
 ​	메세지를 구독할 큐 이름을 입력하면, 바로 구독을 시작하며 도착한 메세지를 실시간으로 콘솔에 출력합니다.
@@ -139,16 +131,11 @@ __consume_auto__ (queue_name)
 
 
 
-
-
-
-
 __consume_nacktest__ (queue_name)
 
 ​	메세지를 구독할 큐 일므을 입력하면, 바로 구독을 시작합니다. 이 때 메세지는 `ack = false` 처리되어 소비되지 않습니다.
 
 - return : `null`
-
 
 
 

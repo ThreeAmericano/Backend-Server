@@ -50,9 +50,14 @@ class RabbitmqClient:
         # 원하는 exchange에 메세지를 발행.
         self.channel.basic_publish(exchange=ec, routing_key=rk, body=message)
 
-    def consume_setting(self, queue_name, cb_function):
+    def consume_setting(self, queue_name, callback_function):
         # 메세지를 불러올 Queue 정보를 등록하고, 메세지가 불러와질 떄 cb_function 함수를 실행함.
-        self.channel.basic_consume(queue=queue_name, on_message_callback=cb_function, auto_ack=True)
+        self.channel.basic_consume(queue=queue_name, on_message_callback=callback_function, auto_ack=True)
+
+    def consume_get(self, queue_name):
+        # 해당 큐에 메세지 한개를 불러옵니다.
+        method_frame, header_frame, body = self.channel.basic_get(queue=queue_name, auto_ack=True)
+        return body
 
     def consume_starting(self):
         # 메세지 불러오기를 시작함.
