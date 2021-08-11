@@ -54,4 +54,4 @@ def getUltraSrtNcst(nx,ny) :
 	
 if __name__ == "__main__":
 	print("main")
-	print(getUltraSrtNcst("60","128"))
+	print(getUltraSrtNcst("60", "128"))

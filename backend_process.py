@@ -76,7 +76,7 @@ def receive_android_signin(json_data):
         return False
 
     # MQTT를 통해 '이름값 반환' 메세지 전송
-    rb.publish_exchange('webos.topic', 'webos.android.info', message)
+    be_channel.publish_exchange('webos.topic', 'webos.android.info', message)
 
 
 ##############################################################################
@@ -90,7 +90,7 @@ def alert_error(routing_key, message):
     dict_msg = {"Producer": "server", "command": "alert", "msg": str(message)}
     json_dump = json.dumps(dict_msg, ensure_ascii=False)
     try:
-        rb.publish_exchange('webos.topic', routing_key, json_dump)
+        be_channel.publish_exchange('webos.topic', routing_key, json_dump)
         sl.slack_post_message('#server', message)
     except Exception as e:
         print("<><><> 에러메세지 전송에 실패했습니다. %r <><><>" % e)
@@ -143,8 +143,6 @@ class WeatherAPI:
     weather_get_interval = 3600 # n초마다 작업진행
     weather_get_last_time = time.time() - weather_get_interval
 
-    def __init__(self):
-
     def check_timeing(self):
         now_interval = time.time() - self.weather_get_last_time
         if now_interval >= self.weather_get_interval:
@@ -160,7 +158,7 @@ class WeatherAPI:
                 weather_json = weather_api.getUltraSrtNcst(px, py)
                 self.weather_get_last_time = time.time()
             except Exception as e:
-                alert_error('data.error.error'
+                alert_error('data.error.error',
                             'ERROR : 날씨API로 부터 값을 받아오는 도중 에러가 발생했습니다. 확인이 필요합니다. *오류명 : ' + str(e))
                 return False
             return weather_json
@@ -170,25 +168,28 @@ class WeatherAPI:
     def send_weather(self, send_json_data):
         # JSON 데이터가 왔는지 확인
         if send_json_data == False:
+            print("json 데이터가 아니므로 종료")
             return False
 
         # 기존 메세지 소비
-        '''
         try:
-            #method_frame = True
-            #while method_frame:
-            body = rb.consume_get('data.weatherapi')
+            method_frame = True
+            while method_frame: # 새로운 메세지가 있는지 확인 (do-while)
+                method_frame, header_frame, body = wa_channel_direct.basic_get(queue='data.weatherapi', auto_ack=True)
+                if body == None: # Queue에 메세지가 없을 경우 예외처리
+                    break
         except Exception as e :
+            alert_error('data.error.error',
+                        "ERROR : data.weatherapi 큐에 메세지를 소비하는 중에 에러가 발생했습니다. 확인이 필요합니다. *오류명 : " + str(e))
             time.sleep(0.01)
-'''
-        # 신규 데이터 발행
-        rb.publish_exchange('webos.topic', 'data.weatherapi.info', send_json_data)
 
+        # 새로운 날씨API 데이터 발행
+        wa_channel.publish_exchange('webos.topic', 'data.weatherapi.info', send_json_data)
 
 
 ##############################################################################
 #
-# 실제 실행구문
+# 초기설정 (Init)
 #
 ##############################################################################
 
@@ -204,20 +205,35 @@ db = firestore.client()
 
 # RabbitMQ 연결 및 정보등록
 rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
-rb.connect_server()
-rb.open_channel()
-rb.consume_setting('webos.server', on_mqtt_message)
+mqtt_conn = rb.connect_server()
+
+wa_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn) # 날씨API 갱신용 MQTT 채널
+wa_channel_direct = wa_channel.open_channel()
+
+be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn) # 백엔드 처리용 MQTT 채널
+be_channel.open_channel()
+be_channel.consume_setting('webos.server', on_mqtt_message)
 
 # RabbitMQ 실제 실행구문 (쓰레드 실행)
-t = threading.Thread(target=rb.consume_starting, daemon=True)
+t = threading.Thread(target=be_channel.consume_starting, daemon=True)
 t.start()
 
 # 날씨 API 개체 생성
 wa = WeatherAPI()
 
 
+##############################################################################
+#
+# 반복 실행
+#
+##############################################################################
+
 while True:
+    # 날씨 값 갱신 (날씨API)
     wa_json = wa.get_weather("60", "128")
-    print(wa_json)
-    time.sleep(3)
-    wa.send_weather(wa_json)
+    try:
+        wa.send_weather(wa_json)
+    except Exception as e:
+        print(e)
+
+    # 또 어떤 로직이 이곳에 오게될것인가~
