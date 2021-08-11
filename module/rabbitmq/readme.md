@@ -1,6 +1,6 @@
 # rabbitmq_client 모듈
 
-20201-08-10, 작성자 : 최현식
+20201-08-11, 작성자 : 최현식
 
 
 
@@ -18,15 +18,16 @@ rb = RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
 rb.connect_server()
 
 # 통신채널을 열어 실제 통신을 진행합니다. 이때 return값을 이용하여 직접 pika 함수를 사용할 수 있습니다.
-direcht_control = rb.open_channel()
+channel = RabbitmqChannel(conn)
+channel.open_channel()
 
 # 메세지를 보냅니다.
-rb.publish_queue('test321', 'messageeeeeee')
+channel.publish_queue('test321', 'messageeeeeee')
 ```
 
 
 
-### 함수
+## RabbitmqClient 함수 (서버 연결생성)
 
 __init__ (ip, port, rbmq_id, rbmq_pw)
 
@@ -57,6 +58,10 @@ __disconnect_server__ ()
 - return : `null`
 
 
+
+
+
+## RabbitmqChannel 함수 (내부 연결 정의)
 
 
 __open_channel__ ()
@@ -105,6 +110,16 @@ __consume_setting__ (queue_name, cb_function)
 
 
 
+__consume_get__ (queue_name)
+
+​	해당 큐에 메세지 한개를 불러와서 해당내용을 반환합니다. 이때 ack는  True로 설정되어있습니다.
+
+- queue_name : 메세지를 구독할 큐를 선택합니다.
+- return : `body(payload)` - String Type
+
+
+
+
 __consume_starting__ ()
 
 ​	`consume_setting` 에 명시한 정보를 기반으로 메세지 구독을 시작합니다.
@@ -136,15 +151,6 @@ __consume_nacktest__ (queue_name)
 ​	메세지를 구독할 큐 일므을 입력하면, 바로 구독을 시작합니다. 이 때 메세지는 `ack = false` 처리되어 소비되지 않습니다.
 
 - return : `null`
-
-
-
-
-
-
-
-
-
 
 
 

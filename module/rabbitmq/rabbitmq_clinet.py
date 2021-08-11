@@ -14,7 +14,6 @@ def on_message(channel, method_frame, header_frame, body):
 
 class RabbitmqClient:
     conn = 'no connection'
-    channel = 'no channel'
 
     def __init__ (self, ip, port, rbmq_id, rbmq_pw) :
         self._ip = ip
@@ -37,6 +36,15 @@ class RabbitmqClient:
     def disconnect_server(self):
         # RabbitMQ 연결 해제 : 브로커 측으로 code 0 과 , 메세지를 보냅니다.
         self.conn.close(0, 'python : Normal shutdown')
+
+
+class RabbitmqChannel:
+    channel = "none"
+    conn = "none"
+
+    def __init__(self, conn):
+        # RabbitmqClient로 부터 connect_server Return값을 받아와야합니다.
+        self.conn = conn
 
     def open_channel(self):
         # RabbitMQ 채널 연결
@@ -94,17 +102,20 @@ class RabbitmqClient:
 if __name__ == "__main__":
     #아래는 테스트 코드입니다.
     rb = RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
-    aa = rb.connect_server()
-    hello = rb.open_channel()
+    conn = rb.connect_server()
 
-    rb.publish_queue('test321', 'messageeeeeee')
-    rb.publish_exchange('webos.topic', 'webos.server.info', '{hello}')
+    test_channel = RabbitmqChannel(conn)
+    tc = test_channel.open_channel()
+
+    tc.basic_publish(exchange='', routing_key='test321',body='direct messsssssssage')
+    test_channel.publish_queue('test321', 'messageeeeeee')
+    test_channel.publish_exchange('webos.topic', 'webos.server.info', '{hello}')
 
     def callback(ch, method, properties, body):
         print(method.delivery_tag)
         print(" [x] Received %r" % body.decode())
 
-    rb.consume_nacktest('webos.server')
+    test_channel.consume_nacktest('data.weatherapi')
     #rb.consume_setting('webos.server', callback)
     #rb.consume_starting()
     rb.disconnect_server()
