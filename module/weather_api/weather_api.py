@@ -34,24 +34,22 @@ def getUltraSrtNcst(nx,ny) :
 
 	# API 요청
 	url_total = vilage_weather_url + payload
-	print(url_total)
 	req = urllib.request.urlopen(url_total)
 	res = req.readline()
-	print(res)
 
 	# 받은 값 JSON 형태로 정제하여 반환
 	items = json.loads(res)
-	print(" - DATA TYPE : %r" % items['response']['body']['dataType'])
+	#print(" - DATA TYPE : %r" % items['response']['body']['dataType'])
 
 	weather_data = "{"
 	for item in items['response']['body']['items']['item']:
-		print(item['category'])
-		print(item['obsrValue'])
+		#print(item['category'])
+		#print(item['obsrValue'])
 		weather_data = weather_data + '"' + item['category'] + '":"' + item['obsrValue'] + '",'
-	weather_data = weather_data[:-1] #가장 끝 문자 1개 제거
+	weather_data = weather_data[:-1] # 가장 끝 문자 1개 제거
 	weather_data = weather_data + "}"
 		
-	return weather_data
+	return weather_data # JSON 형태로 반환
 	
 	
 if __name__ == "__main__":

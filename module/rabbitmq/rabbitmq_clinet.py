@@ -32,6 +32,7 @@ class RabbitmqClient:
             credentials=cred
         ))
         self.conn = connection
+        return self.conn
 
     def disconnect_server(self):
         # RabbitMQ 연결 해제 : 브로커 측으로 code 0 과 , 메세지를 보냅니다.
@@ -46,9 +47,9 @@ class RabbitmqClient:
         # 원하는 Queue에 직접 메세지를 발행. queue_name(=routing_key)
         self.channel.basic_publish(exchange='', routing_key=queue_name,body=message)  # exchange, routing_key, body(message)를 차례로 입력
 
-    def publish_exchange(self, ec, rk, message):
+    def publish_exchange(self, exchange, routing_key, message):
         # 원하는 exchange에 메세지를 발행.
-        self.channel.basic_publish(exchange=ec, routing_key=rk, body=message)
+        self.channel.basic_publish(exchange=exchange, routing_key=routing_key, body=message)
 
     def consume_setting(self, queue_name, callback_function):
         # 메세지를 불러올 Queue 정보를 등록하고, 메세지가 불러와질 떄 cb_function 함수를 실행함.
@@ -82,7 +83,7 @@ class RabbitmqClient:
                 method_frame, header_frame, body = self.channel.basic_get(queue=queue_name, auto_ack=False) # 메세지를 NACK(확인하지않음) 상태로 가져옴
                 if method_frame:
                     print(method_frame, header_frame, body)
-                    self.channel.basic_recover(requeue=True) #대기상태에 있는 NACK 메세지를 반려함. (즉, 다시 QUEUE에 등록됨)
+                    self.channel.basic_recover(requeue=True) # 대기상태에 있는 NACK 메세지를 반려함. (즉, 다시 QUEUE에 등록됨)
                 else:
                     print('No message returned')
                 time.sleep(3)
@@ -93,7 +94,7 @@ class RabbitmqClient:
 if __name__ == "__main__":
     #아래는 테스트 코드입니다.
     rb = RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
-    rb.connect_server()
+    aa = rb.connect_server()
     hello = rb.open_channel()
 
     rb.publish_queue('test321', 'messageeeeeee')
