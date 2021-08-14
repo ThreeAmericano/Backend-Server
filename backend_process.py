@@ -30,10 +30,10 @@ slack_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_project_name = 'threeamericano'
 json_file_path = "./realtimedb.json"
-mqtt_server_ip = '211.179.42.130'
-mqtt_server_port = 5672
-mqtt_server_id = 'rabbit'
-mqtt_server_pw = 'MQ321'
+#mqtt_server_ip = '211.179.42.130'
+#mqtt_server_port = 5672
+#mqtt_server_id = 'rabbit'
+#mqtt_server_pw = 'MQ321'
 
 
 def receive_car_signup(json_data):
@@ -146,7 +146,7 @@ def alert_error(routing_key, message):
 
 def read_jsonfile(file_path):
     with open(file_path, "r") as json_file:
-        dict_data = json.load(json_file)
+        dict_data = str(json.load(json_file))
         return dict_data
 
 
@@ -209,7 +209,8 @@ firebase_admin.initialize_app(cred, {
 db = firestore.client()
 
 # RabbitMQ 연결 및 정보등록
-rb = rabbitmq_clinet.RabbitmqClient(mqtt_server_ip, mqtt_server_port, mqtt_server_id, mqtt_server_pw)
+#rb = rabbitmq_clinet.RabbitmqClient(mqtt_server_ip, mqtt_server_port, mqtt_server_id, mqtt_server_pw)
+rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
 mqtt_conn = rb.connect_server()
 
 be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn) # 백엔드 처리용 MQTT 채널
@@ -226,11 +227,13 @@ t.start()
 # 반복 실행
 #
 ##############################################################################
-
 while True:
     # RealTime DB 값 불러오기
-    rtdb_dict_data = read_jsonfile(json_file_path)
-    print(rtdb_dict_data)
-    time.sleep(100)
+    try:
+        rtdb_dict_data = read_jsonfile(json_file_path)
+        time.sleep(10)
+    except Exception as e:
+        alert_error("data.error.error",
+                    "ERROR : RealTimeDB.JSON을 불러오는 중에 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
     # 또 어떤 로직이 이곳에 오게될것인가~

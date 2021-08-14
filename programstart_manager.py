@@ -29,7 +29,7 @@ def thread_backend_process():
 		except Exception as e:
 			# 문제발생시 오류메세지 송출
 			alert_error("ERROR : 서버 프로그램(backend_process.py)이 예상치 못한 상황으로 인해 종료되었습니다. *오류명 : %r" % str(e))
-		alert_error("INFORM : 서버 처리프로그램이 재가동됩니다.")
+		alert_error("INFORM : 서버 처리프로그램(backend_process.py)이 재가동됩니다.")
 
 
 def thread_realtimedb_connect():
@@ -40,7 +40,7 @@ def thread_realtimedb_connect():
 		except Exception as e:
 			# 문제발생시 오류메세지 송출
 			alert_error("ERROR : 서버 프로그램(realtimedb_connect)이 예상치 못한 상황으로 인해 종료되었습니다. *오류명 : %r" % str(e))
-		alert_error("INFORM : 서버 처리프로그램이 재가동됩니다.")
+		alert_error("INFORM : 서버 처리프로그램(realtimedb_connect)이 재가동됩니다.")
 
 
 # Slack Bot 개체 생성하기

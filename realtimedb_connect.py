@@ -31,7 +31,7 @@ def alert_error(message):
 
 
 def write_jsonfile(file_path, dict_data):
-    with open(json_file_path, 'w') as outfile:
+    with open(json_file_path, 'w', encoding='utf8') as outfile:
         json.dump(dict_data, outfile, indent=4, ensure_ascii=False)
 
 
@@ -58,9 +58,9 @@ while True:
     # 날씨API를 통해 값 가져오기
     now_interval = time.time() - weather_get_latest
     if now_interval < weather_get_interval:
-        print("날씨API 요청시간 : {0} / {1}".format(now_interval, weather_get_interval))
+        # print("날씨API 요청시간 : {0} / {1}".format(now_interval, weather_get_interval))
+        pass
     else:
-        print("API를 통해 날씨값을 가져옵니다.")
         try:
             ow.update_now_auto("Seoul")
             ow_dict = ow.getter_dict()
@@ -69,7 +69,6 @@ while True:
             alert_error("ERROR : OpenWeatherMap API를 통해 값을 요청하던 중 오류가 발생했습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
     # 파이어베이스 RealTime DB에 값 업데이트하기
-    print("파이어베이스 RealTime DB 값을 업데이트합니다.")
     try:
         rtdb = db.reference()
         for key in ow_dict:
