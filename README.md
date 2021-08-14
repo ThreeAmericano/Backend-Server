@@ -14,10 +14,23 @@
         ┗ 📁rabbitmq //MQTT를 사용하기위한 모듈
         ┗ 📁slack //slack을 사용하기위한 모듈
         ┗ 📁weather_api //날씨API를 사용하기위한 모듈
-	┗ 📃backend_process.py //메인 프로그램
+	┗ 📃programstart_manager.py //각 프로그램 총괄관리
+	┗ 📃backend_process.py //MQTT 명령 처리 프로그램
+	┗ 📃realtimedb_connect.py //파이어베이스 RealTimeDB를 접속관리하는 프로그램
+	┗ 📃realtimedb.json //RealTimeDB에 현황을 파일로 실시간 업데이트
 ```
 
 
+
+
+
+💥💢💌💤💦☸☪쓸게많다요~
+
+
+
+### programstart_manager
+
+### realtimedb_connect
 
 ### 메인 프로그램 (backend_process)
 
