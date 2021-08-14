@@ -2,13 +2,12 @@
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-08-13
+#   수정일 : 2021-08-14
 #   작성자 : 최현식(chgy2131@naver.com)
 #   변경점 (해야할거)
 #        - 스마트홈 기기 제어 부분 추가해야함
-#        - 날씨API를 통해 ini 파일을 만들어서 전달하는 프로그램
-#        - RealTime DB 값을 ini 파일을 통해 가져오는 로직
-#        -
+#        - RealTime DB 값을 json파일을 통해 로드하는 로직 작성.
+#        - 날씨 데이터 갱신 로직을 다른 파일로 분리함.
 #
 ##############################################################################
 
@@ -25,7 +24,6 @@ import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 from module.rabbitmq import rabbitmq_clinet
-from module.weather_api import weather_api
 from module.slack import slack
 
 slack_token = 0
@@ -34,15 +32,16 @@ mqtt_server_ip = 0
 mqtt_server_port = 0
 mqtt_server_id = 0
 mqtt_server_pw = 0
+json_file_path = "./realtimedb.json"
 
 
 def receive_car_signup(json_data):
     # JSON 데이터 유효성 검사 (KEY 확인)
     try:
-        json_key_is_there(json_data,['UID', 'name'])
+        json_key_is_there(json_data, ['UID', 'name'])
     except Exception as e:
         alert_error('webos.car.error',
-				"ERROR : 도착한 JSON 데이터의 형식이 기존 규약과 상이합니다. 확인이 필요합니다. *오류내용 : " + str(e))
+                    "ERROR : 도착한 JSON 데이터의 형식이 기존 규약과 상이합니다. 확인이 필요합니다. *오류내용 : " + str(e))
         return False
 
     # 파이어베이스에 신규가입회원 데이터 추가
@@ -78,7 +77,7 @@ def receive_car_signin(json_data):
         return False
 
     # MQTT를 통해 '이름값 반환' 메세지 전송
-    rb.publish_exchange('webos.topic', 'webos.car.info', message)
+    be_channel.publish_exchange('webos.topic', 'webos.car.info', message)
 
 
 def receive_android_signup(json_data):
@@ -144,6 +143,12 @@ def alert_error(routing_key, message):
         return False
 
 
+def read_jsonfile(file_path):
+    with open(file_path, "r") as json_file:
+        dict_data = json.load(json_file)
+        return dict_data
+
+
 def json_key_is_there(json_data, key_list):
     for key in key_list:
         temp = json_data[key]
@@ -172,7 +177,7 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
     # 해당 메세지를 처리할 수 있는 함수가 있는지 확인
     function_name = str(json_data['Producer']) + '_' + str(json_data['command'])
     globals_var = str(globals())
-    if globals_var.find('receive_'+function_name) == -1 :
+    if globals_var.find('receive_'+function_name) == -1:
         alert_error('webos.'+json_data['Producer']+'.error',
                     "WARNING : 처리함수가 없는 데이터가 들어왔습니다. 이를 무시합니다. *로딩함수명 : " + str('receive_'+function_name))
         return False
@@ -184,54 +189,6 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
         alert_error('webos.'+json_data['Producer']+'.error',
                     "ERROR : 처리함수 실행중 에러가 발생했습니다. 확인이 필요합니다. *오류명 : " + str(e))
         return False
-
-
-class WeatherAPI:
-    weather_get_interval = 3600 # n초마다 작업진행
-    weather_get_last_time = time.time() - weather_get_interval
-
-    def check_timeing(self):
-        now_interval = time.time() - self.weather_get_last_time
-        if now_interval >= self.weather_get_interval:
-            return True
-        else:
-            return False
-
-    def get_weather(self, px, py):
-        # 시간 경과 확인
-        if self.check_timeing():
-            # API를 통해 날씨정보를 받아옴 (return: JSON)
-            try:
-                weather_json = weather_api.getUltraSrtNcst(px, py)
-                self.weather_get_last_time = time.time()
-            except Exception as e:
-                alert_error('data.error.error',
-                            'ERROR : 날씨API로 부터 값을 받아오는 도중 에러가 발생했습니다. 확인이 필요합니다. *오류명 : ' + str(e))
-                return False
-            return weather_json
-        else:
-            return False
-
-    def send_weather(self, send_json_data):
-        # JSON 데이터가 왔는지 확인
-        if send_json_data == False:
-            print("json 데이터가 아니므로 종료")
-            return False
-
-        # 기존 메세지 소비
-        try:
-            method_frame = True
-            while method_frame: # 새로운 메세지가 있는지 확인 (do-while)
-                method_frame, header_frame, body = wa_channel_direct.basic_get(queue='data.weatherapi', auto_ack=True)
-                if body == None: # Queue에 메세지가 없을 경우 예외처리
-                    break
-        except Exception as e :
-            alert_error('data.error.error',
-                        "ERROR : data.weatherapi 큐에 메세지를 소비하는 중에 에러가 발생했습니다. 확인이 필요합니다. *오류명 : " + str(e))
-            time.sleep(0.01)
-
-        # 새로운 날씨API 데이터 발행
-        wa_channel.publish_exchange('webos.topic', 'data.weatherapi.info', send_json_data)
 
 
 ##############################################################################
@@ -254,9 +211,6 @@ db = firestore.client()
 rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
 mqtt_conn = rb.connect_server()
 
-wa_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn) # 날씨API 갱신용 MQTT 채널
-wa_channel_direct = wa_channel.open_channel()
-
 be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn) # 백엔드 처리용 MQTT 채널
 be_channel.open_channel()
 be_channel.consume_setting('webos.server', on_mqtt_message)
@@ -264,9 +218,6 @@ be_channel.consume_setting('webos.server', on_mqtt_message)
 # RabbitMQ 실제 실행구문 (쓰레드 실행)
 t = threading.Thread(target=be_channel.consume_starting, daemon=True)
 t.start()
-
-# 날씨 API 개체 생성
-wa = WeatherAPI()
 
 
 ##############################################################################
@@ -276,11 +227,9 @@ wa = WeatherAPI()
 ##############################################################################
 
 while True:
-    # 날씨 값 갱신 (날씨API)
-    wa_json = wa.get_weather("60", "128")
-    try:
-        wa.send_weather(wa_json)
-    except Exception as e:
-        print(e)
+    # RealTime DB 값 불러오기
+    rtdb_dict_data = read_jsonfile(json_file_path)
+    print(rtdb_dict_data)
+    time.sleep(100)
 
     # 또 어떤 로직이 이곳에 오게될것인가~
