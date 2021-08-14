@@ -11,7 +11,7 @@ vilage_weather_url = "http://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/"
 service_key = "fF5OJkqdLH%2BOGt4%2F3F0FtaLc%2B4GsfqE%2BNxyg6iTAAl3NeK8jTGT26iCHraMiKTY%2FfXyHfox2azdPtitSo4SoXw%3D%3D" #기상청_단기예보 조회서비스 서비스 키
 
 
-def getUltraSrtNcst(nx,ny) :
+def getUltraSrtNcst(nx, ny) :
 	global vilage_weather_url, service_key
 	vilage_weather_url = vilage_weather_url + "getUltraSrtNcst"
 	

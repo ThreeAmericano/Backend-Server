@@ -1,12 +1,14 @@
 #-*-coding:utf-8-*-
-
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   작성일 : 2021-08-10
+#   수정일 : 2021-08-13
 #   작성자 : 최현식(chgy2131@naver.com)
-#   변경점
-#        - 최초작성
+#   변경점 (해야할거)
+#        - 스마트홈 기기 제어 부분 추가해야함
+#        - 날씨API를 통해 ini 파일을 만들어서 전달하는 프로그램
+#        - RealTime DB 값을 ini 파일을 통해 가져오는 로직
+#        -
 #
 ##############################################################################
 
@@ -32,6 +34,51 @@ mqtt_server_ip = 0
 mqtt_server_port = 0
 mqtt_server_id = 0
 mqtt_server_pw = 0
+
+
+def receive_car_signup(json_data):
+    # JSON 데이터 유효성 검사 (KEY 확인)
+    try:
+        json_key_is_there(json_data,['UID', 'name'])
+    except Exception as e:
+        alert_error('webos.car.error',
+				"ERROR : 도착한 JSON 데이터의 형식이 기존 규약과 상이합니다. 확인이 필요합니다. *오류내용 : " + str(e))
+        return False
+
+    # 파이어베이스에 신규가입회원 데이터 추가
+    doc_ref = db.collection(u'user_account').document(json_data['UID'])
+    doc_ref.set({
+        u'name': json_data['name']
+    })
+
+
+def receive_car_signin(json_data):
+    # JSON 데이터 유효성 검사 (KEY 확인)
+    try:
+        json_key_is_there(json_data, ['UID'])
+    except Exception as e:
+        alert_error('webos.car.error',
+                    "ERROR : 도착한 JSON 데이터의 형식이 기존 규약과 상이합니다. 확인이 필요합니다. *오류내용 : " + str(e))
+        return False
+
+    # 파이어베이스에서 해당 회원(UID)의 이름을 가져옴
+    users_ref = db.collection(u'user_account').document(json_data['UID'])
+    docs = users_ref.get()
+
+    # JSON 형태로 변환
+    if docs.exists:
+        # print(f'Document data: {docs.to_dict()}')
+        docs_json_data = docs.to_dict()
+        docs_json_data['Producer'] = "server"
+        docs_json_data['command'] = "return_name"
+        message = json.dumps(docs_json_data, ensure_ascii=False)
+    else:
+        alert_error('webos.car.error',
+                    "ERROR : UID에 해당하는 유저 정보가 없습니다. 확인이 필요합니다.")
+        return False
+
+    # MQTT를 통해 '이름값 반환' 메세지 전송
+    rb.publish_exchange('webos.topic', 'webos.car.info', message)
 
 
 def receive_android_signup(json_data):
