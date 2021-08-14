@@ -21,6 +21,8 @@ json_file_path = "./realtimedb.json"
 firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_realtimedb_url = 'https://threeamericano-default-rtdb.firebaseio.com/'
 openweathermap_service_key = "c7446d3b017961049805343e08347b43"
+weather_get_interval = 3600 #sec
+weather_get_latest = time.time() - weather_get_interval
 
 
 def alert_error(message):
@@ -51,17 +53,29 @@ ow = openweathermap_api.OpenWeatherAPI(service_key=openweathermap_service_key)
 #
 ##############################################################################
 
-# 날씨API를 통해 값 가져오기
-ow.update_now_auto("Seoul")
-ow_dict = ow.getter_dict()
-print(ow_dict)
+while True:
+    time.sleep(1)
+    # 날씨API를 통해 값 가져오기
+    now_interval = time.time() - weather_get_latest
+    if now_interval < weather_get_interval:
+        print("날씨API 요청시간 : {0} / {1}".format(now_interval, weather_get_interval))
+    else:
+        print("API를 통해 날씨값을 가져옵니다.")
+        try:
+            ow.update_now_auto("Seoul")
+            ow_dict = ow.getter_dict()
+            weather_get_latest = time.time()
+        except Exception as e:
+            alert_error("ERROR : OpenWeatherMap API를 통해 값을 요청하던 중 오류가 발생했습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
-print("===================================")
-# 파이어베이스 RealTime DB에 값 업데이트하기
-rtdb = db.reference()
-for key in ow_dict:
-    rtdb.child("sensor").child("openweather").update({key: ow_dict[key]})
+    # 파이어베이스 RealTime DB에 값 업데이트하기
+    print("파이어베이스 RealTime DB 값을 업데이트합니다.")
+    try:
+        rtdb = db.reference()
+        for key in ow_dict:
+            rtdb.child("sensor").child("openweather").update({key: ow_dict[key]})
 
-ddata = rtdb.get()
-write_jsonfile(json_file_path, ddata)
-
+        ddata = rtdb.get()
+        write_jsonfile(json_file_path, ddata)
+    except Exception as e:
+        alert_error("ERROR : FireBase RealTime DB 사용 중 오류가 발생했습니다. 확인이 필요합니다. *오류명 : %r" % str(e))

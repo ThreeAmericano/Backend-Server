@@ -26,13 +26,14 @@ from firebase_admin import firestore
 from module.rabbitmq import rabbitmq_clinet
 from module.slack import slack
 
-slack_token = 0
-firebase_key_path = 0
-mqtt_server_ip = 0
-mqtt_server_port = 0
-mqtt_server_id = 0
-mqtt_server_pw = 0
+slack_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
+firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
+firebase_project_name = 'threeamericano'
 json_file_path = "./realtimedb.json"
+mqtt_server_ip = '211.179.42.130'
+mqtt_server_port = 5672
+mqtt_server_id = 'rabbit'
+mqtt_server_pw = 'MQ321'
 
 
 def receive_car_signup(json_data):
@@ -198,17 +199,17 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
 ##############################################################################
 
 # Slack Bot 개체 생성하기
-sl = slack.SlackBot(token="xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX")
+sl = slack.SlackBot(token=slack_token)
 
 # 파이어베이스 프로젝트에 접속하기
-cred = credentials.Certificate('./firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json')
+cred = credentials.Certificate(firebase_key_path)
 firebase_admin.initialize_app(cred, {
-    'projectID': 'threeamericano',
+    'projectID': firebase_project_name,
 })
 db = firestore.client()
 
 # RabbitMQ 연결 및 정보등록
-rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+rb = rabbitmq_clinet.RabbitmqClient(mqtt_server_ip, mqtt_server_port, mqtt_server_id, mqtt_server_pw)
 mqtt_conn = rb.connect_server()
 
 be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn) # 백엔드 처리용 MQTT 채널
