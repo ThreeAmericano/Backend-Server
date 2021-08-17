@@ -115,8 +115,8 @@ if __name__ == "__main__":
         print(method.delivery_tag)
         print(" [x] Received %r" % body.decode())
 
-    test_channel.consume_nacktest('data.weatherapi')
-    #rb.consume_setting('webos.server', callback)
-    #rb.consume_starting()
+    #test_channel.consume_nacktest('data.weatherapi')
+    test_channel.consume_setting('webos.android', callback)
+    test_channel.consume_starting()
     rb.disconnect_server()
     print("main")

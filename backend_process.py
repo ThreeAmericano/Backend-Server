@@ -155,6 +155,17 @@ def json_key_is_there(json_data, key_list):
         temp = json_data[key]
 
 
+def read_firestore(collection_name):
+    # Firesotre Update 되었을때만 가져오는 함수가 있는지 확인
+    schedule_ref = db.collection(collection_name)
+    docs = schedule_ref.stream()
+    '''
+    for doc in docs:
+        print(u'{} => {}'.format(doc.id, doc.to_dict()))
+    '''
+    return docs
+
+
 def on_mqtt_message(channel, method_frame, header_frame, body):
     print("[ Recive Message from MQTT Queue ]")
     # 메세지 내용을 JSON 형태로 정제
@@ -236,4 +247,12 @@ while True:
         alert_error("data.error.error",
                     "ERROR : RealTimeDB.JSON을 불러오는 중에 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
+    # FireStore Schedule 값 불러오기
+    try:
+        read_firestore('schedule_mode')
+    except Exception as e:
+        alert_error("data.error.error",
+                    "ERROR : FireStore DB에서 데이터를 불러오는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
+
     # 또 어떤 로직이 이곳에 오게될것인가~
+
