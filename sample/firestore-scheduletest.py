@@ -21,6 +21,8 @@ import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 
+import re
+
 slack_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 firebase_key_path = '../firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_project_name = 'threeamericano'
@@ -96,8 +98,10 @@ def check_schedule_now(dict_data):
 
     if dict_data['One_time']:
         # 일회성 로직인 경우
-        print(time.strftime("%Y%m%d%H%M", dict_data['Active_date']))
-        print(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
+        active_time = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:16]))
+        now_time = int(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
+        if (active_time - 1) <= now_time <= (active_time + 1):
+            check_state = True
     else:
         # 주기적 로직인 경우
         print("오늘요일 : %r" % dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))])
@@ -107,13 +111,6 @@ def check_schedule_now(dict_data):
         start_time = int(dict_data['Start_time'])
         end_time = int(dict_data['End_time'])
         check_state = False
-
-        '''
-        print("{0} -> {1} -> {2}".format(dict_data['Start_time'],
-                                         now_time,
-                                         dict_data['End_time']
-                                         ))
-        '''
 
         # 확인 조건문
         if (start_time < now_time) and (now_time < end_time):
@@ -160,6 +157,7 @@ update_schedule('schedule_mode', '돈벌시간', {
     'UID': 'DONVERSIGAN123',
     'Active_date': datetime.datetime.now(),
     'Device_ex': "EXAMPLE"
+    # DEVICE 제어 내용
 })
 
 # 지속성 업데이트 예제
@@ -171,6 +169,7 @@ update_schedule('schedule_mode', '돈벌시간2', {
     'Start_time': "2000",
     'End_time': "0230",
     'Device_ex': "EXAMPLE"
+    # DEVICE 제어 내용
 })
 '''
 # FireStore Schedule 값 불러오기
