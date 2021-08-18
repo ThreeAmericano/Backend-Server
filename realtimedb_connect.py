@@ -8,13 +8,13 @@
 #        - 최초작성
 #
 ##############################################################################
+import time
+import json
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import db
 from module.weather_api import openweathermap_api
 from module.slack import slack
-import time
-import json
 
 slack_bot_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 json_file_path = "./realtimedb.json"

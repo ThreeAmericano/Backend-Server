@@ -20,7 +20,7 @@ def airpollution_policy(value, good, normal, bad):
 class OpenWeatherAPI:
 	openweather_api_url = "https://api.openweathermap.org/data/2.5/"
 	__service_key = "none"
-	__dict_data = {'갱신일': str(datetime.datetime.now())}
+	__dict_data = {'update': str(datetime.datetime.now())}
 	recent_lon = "none"
 	recent_lat = "none"
 
@@ -41,7 +41,7 @@ class OpenWeatherAPI:
 		self.update_air_pollution(self.recent_lat, self.recent_lon)
 
 	def update_weather_city(self, city):
-		self.__dict_data['갱신일'] = str(datetime.datetime.now())
+		self.__dict_data['update'] = str(datetime.datetime.now())
 
 		# API 요청시 필요한 인수값 정의
 		ow_api_url = self.openweather_api_url + "weather"
@@ -57,35 +57,35 @@ class OpenWeatherAPI:
 		self.recent_lat = str(items['coord']['lat'])
 		self.recent_lon = str(items['coord']['lon'])
 
-		self.__dict_data['도시명'] = items['name']
-		self.__dict_data['날씨'] = items['weather'][0]['main']
-		self.__dict_data['날씨설명'] = items['weather'][0]['description']
-		self.__dict_data['아이콘'] = items['weather'][0]['icon']
+		# self.__dict_data['도시명'] = items['name']
+		# self.__dict_data['날씨'] = items['weather'][0]['main']
+		self.__dict_data['description'] = items['weather'][0]['description']
+		self.__dict_data['icon'] = items['weather'][0]['icon']
 
-		self.__dict_data['현재온도'] = str(int(items['main']['temp'])-273.15)[0:4]
-		self.__dict_data['체감온도'] = str(int(items['main']['feels_like'])-273.15)[0:4]
-		self.__dict_data['최저온도'] = str(int(items['main']['temp_min'])-273.15)[0:4]
-		self.__dict_data['최고온도'] = str(int(items['main']['temp_max'])-273.15)[0:4]
+		self.__dict_data['temp'] = str(int(items['main']['temp'])-273.15)[0:4]
+		# self.__dict_data['체감온도'] = str(int(items['main']['feels_like'])-273.15)[0:4]
+		# self.__dict_data['최저온도'] = str(int(items['main']['temp_min'])-273.15)[0:4]
+		# self.__dict_data['최고온도'] = str(int(items['main']['temp_max'])-273.15)[0:4]
 
-		self.__dict_data['습도'] = str(items['main']['humidity']) + "%"
-		self.__dict_data['기압'] = str(items['main']['pressure']) + "hPa"
-		self.__dict_data['가시거리'] = items['visibility']
+		# self.__dict_data['습도'] = str(items['main']['humidity']) + "%"
+		# self.__dict_data['기압'] = str(items['main']['pressure']) + "hPa"
+		# self.__dict_data['가시거리'] = items['visibility']
 
-		self.__dict_data['풍속'] = str(items['wind']['speed']) + "m/s"
-		self.__dict_data['풍향'] = str(items['wind']['deg']) + "도"
+		# self.__dict_data['풍속'] = str(items['wind']['speed']) + "m/s"
+		# self.__dict_data['풍향'] = str(items['wind']['deg']) + "도"
 		# self.__dict_data['돌풍'] = items['wind']['gust']
 		# self.__dict_data['1시간강수'] = items['rain']['1h']) #비 올때만 생김
 		# self.__dict_data['3시간강수'] = items['rain']['3h']) #비 올때만 생김
 		# self.__dict_data['1시간적설'] = items['snow']['1h']) #눈 올때만 생김
 		# self.__dict_data['3시간적설'] = items['snow']['3h']) #눈 올때만 생김
-		self.__dict_data['흐림'] = str(items['clouds']['all']) + "%"
-		self.__dict_data['일출'] = items['sys']['sunrise']
-		self.__dict_data['일몰'] = items['sys']['sunset']
+		# self.__dict_data['흐림'] = str(items['clouds']['all']) + "%"
+		# self.__dict_data['일출'] = items['sys']['sunrise']
+		# self.__dict_data['일몰'] = items['sys']['sunset']
 
 		# 미세먼지 값 불러오기 (대기상태)
 
 	def update_air_pollution(self, pos_lat, pos_lon):
-		self.__dict_data['갱신일'] = str(datetime.datetime.now())
+		self.__dict_data['update'] = str(datetime.datetime.now())
 
 		# API 요청시 필요한 인수값 정의
 		ow_api_url = self.openweather_api_url + "air_pollution"
@@ -104,23 +104,23 @@ class OpenWeatherAPI:
 		# 대기질 기준 : https://www.airkorea.or.kr/web/khaiInfo?pMENU_NO=129
 		# air_co = airpollution_policy(items['list'][0]['components']['co'], 16, 36, 76)
 		# air_no2 = airpollution_policy(items['list'][0]['components']['no2'], 0.031, 0.061, 0.201)
-		air_total = airpollution_policy(items['list'][0]['main']['aqi'], 1, 2, 3)
+		# air_total = airpollution_policy(items['list'][0]['main']['aqi'], 1, 2, 3)
 		air_pm25 = airpollution_policy(items['list'][0]['components']['pm2_5'], 15, 35, 75)
 		air_pm10 = airpollution_policy(items['list'][0]['components']['pm10'], 30, 80, 150)
 		# air_o3 = airpollution_policy(items['list'][0]['components']['o3'], 0.031, 0.061, 0.201)
 		# air_so2 = airpollution_policy(items['list'][0]['components']['so2'], 0.031, 0.061, 0.201)
 
-		self.__dict_data['대기질지수'] = air_total
-		self.__dict_data['미세먼지'] = air_pm10
-		self.__dict_data['초미세먼지'] = air_pm25
-		self.__dict_data['co'] = items['list'][0]['components']['co']
-		self.__dict_data['no'] = items['list'][0]['components']['no']
-		self.__dict_data['no2'] = items['list'][0]['components']['no2']
-		self.__dict_data['o3'] = items['list'][0]['components']['o3']
-		self.__dict_data['so2'] = items['list'][0]['components']['so2']
-		self.__dict_data['pm2_5'] = items['list'][0]['components']['pm2_5']
-		self.__dict_data['pm10'] = items['list'][0]['components']['pm10']
-		self.__dict_data['nh3'] = items['list'][0]['components']['nh3']
+		self.__dict_data['air_level'] = items['list'][0]['main']['aqi']
+		# self.__dict_data['미세먼지'] = air_pm10
+		# self.__dict_data['초미세먼지'] = air_pm25
+		# self.__dict_data['co'] = items['list'][0]['components']['co']
+		# self.__dict_data['no'] = items['list'][0]['components']['no']
+		# self.__dict_data['no2'] = items['list'][0]['components']['no2']
+		# self.__dict_data['o3'] = items['list'][0]['components']['o3']
+		# self.__dict_data['so2'] = items['list'][0]['components']['so2']
+		# self.__dict_data['pm2_5'] = items['list'][0]['components']['pm2_5']
+		# self.__dict_data['pm10'] = items['list'][0]['components']['pm10']
+		# self.__dict_data['nh3'] = items['list'][0]['components']['nh3']
 
 
 if __name__ == "__main__":

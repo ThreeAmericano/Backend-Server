@@ -22,17 +22,57 @@
 
 
 
-
-
-💥💢💌💤💦☸☪쓸게많다요~
+___
 
 
 
 ### programstart_manager
 
+목적 : 백엔드 프로그램 총괄, 하위 프로그램 실행관리, 예외상황 발생처리, 서버 디바이스 모니터링 관리
+
+Python3 로 작성되었으며, 의존 모듈은 아래와 같습니다.
+
+```python
+import os
+import threading
+import time
+
+from module.slack import slack
+```
+
+
+
+---
+
+
+
 ### realtimedb_connect
 
-### 메인 프로그램 (backend_process)
+목적 : 실시간DB 접근/관리, 날씨API로부터 데이터 수신
+
+Python3 로 작성되었으며, 의존 모듈은 아래와 같습니다.
+
+```python
+import time
+import json
+
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import db
+
+from module.weather_api import openweathermap_api
+from module.slack import slack
+```
+
+
+
+---
+
+
+
+### backend_process
+
+목적 : MQTT 클라이언트(송신/수신), 파이어스토어 접근/관리, MQTT 및 파이어스토어 데이터 정제 및 처리
 
 Python3 로 작성되었으며, 의존 모듈은 아래와 같습니다.
 
@@ -47,10 +87,15 @@ from firebase_admin import firestore
 
 from module.rabbitmq import rabbitmq_clinet
 	┗ include pika
-from module.weather_api import weather_api
-	┗ include urllib.request
-   	┗ include datetime
 from module.slack import slack
    	┗ include requests
 ```
+
+
+
+
+
+## 스마트홈 제어 (RealTime DB, MQTT 메세지)
+
+![](./readme_file/img/smarthome_protocol.png)
 
