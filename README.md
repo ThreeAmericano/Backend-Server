@@ -91,3 +91,11 @@ from module.slack import slack
    	┗ include requests
 ```
 
+
+
+
+
+## 스마트홈 제어 (RealTime DB, MQTT 메세지)
+
+![](./readme_file/img/smarthome_protocol.png)
+
