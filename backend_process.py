@@ -156,6 +156,67 @@ def json_key_is_there(json_data, key_list):
         temp = json_data[key]
 
 
+def dict_for_smarthome(dict_data):
+    # 스케쥴 DB에서 가져온 dict 데이터를, 스마트홈 가전제어 프로토콜에 사용하기 위한 변수로 변환해주는 함수
+    try:
+        if dict_data['Device_aircon'][0]:
+            aircon_enable = '1'
+        else:
+            aircon_enable = '0'
+    except Exception as e:
+        aircon_enable = '2'
+    try:
+        aircon_power = str(dict_data['Device_aircon'][1])
+    except Exception as e:
+        aircon_power = '0'
+
+    try:
+        if dict_data['Device_light'][0]:
+            light_enable = '1'
+        else:
+            light_enable = '0'
+    except Exception as e:
+        light_enable = '2'
+    try:
+        light_brightness = str(dict_data['Device_light'][1])
+    except Exception as e:
+        light_brightness = '9'
+    try:
+        light_color = str(dict_data['Device_light'][2])
+    except Exception as e:
+        light_color = '0'
+    try:
+        light_mod = str(dict_data['Device_light'][3])
+    except Exception as e:
+        light_mod = '0'
+
+    try:
+        if dict_data['Device_window'][0]:
+            window_enable = '1'
+        else:
+            window_enable = '0'
+    except Exception as e:
+        window_enable = '2'
+    try:
+        if dict_data['Device_gas'][0]:
+            gas_enable = '1'
+        else:
+            gas_enable = '0'
+    except Exception as e:
+        gas_enable = '2'
+
+    return aircon_enable, aircon_power, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
+
+
+def send_control_smarthome(aircon_enable, aircon_power,
+                           light_enable, light_brightness, light_color, light_mod,
+                           window_enable, gas_enable):
+    message = aircon_enable + aircon_power + light_enable + light_brightness + light_color + light_mod + window_enable + gas_enable
+
+    # MQTT를 통해 '스마트홈 가전제어' 메세지 전송
+    be_channel.publish_exchange('webos.topic', 'webos.smarthome.info', message)
+
+
 def read_firestore(collection_name):
     # Firesotre Update 되었을때만 가져오는 함수가 있는지 확인
     schedule_ref = db.collection(collection_name)
@@ -331,14 +392,17 @@ while True:
                 check_schedule_right(schedule_dict)
             except Exception as e:
                 alert_error("data.error.error",
-                            "WARNING : FireStore DB에 형식이 잘못된 데이터가 있습니다. 확인이 필요합니다. *문서ID : " + str(
-                                doc.id) + " / *오류명 : " + str(e))
+                            "WARNING : FireStore DB에 형식이 잘못된 데이터가 있습니다. 확인이 필요합니다. *문서ID : " +
+                            str(doc.id) + " / *오류명 : " + str(e))
                 continue
 
             # 현재 실행해야 하는 스케쥴인지 확인
             print(check_schedule_now(schedule_dict))
             if check_schedule_now(schedule_dict):
-                pass
+                print("<---------------->")
+                m1, m2, m3, m4, m5, m6, m7, m8 = dict_for_smarthome(schedule_dict)
+                send_control_smarthome(m1, m2, m3, m4, m5, m6, m7, m8)
+                print("<---------------->")
 
     except Exception as e:
         alert_error("data.error.error",
