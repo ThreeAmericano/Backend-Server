@@ -2,7 +2,7 @@
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-08-18
+#   수정일 : 2021-08-19
 #   작성자 : 최현식(chgy2131@naver.com)
 #   변경점 (해야할거)
 #        - 파이어스토어 스케쥴 확인 부분 추가
@@ -160,78 +160,123 @@ def json_key_is_there(json_data, key_list):
 
 
 def dict_realtimedb_for_smarthome(dict_data):
+    # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수
     smarthome = dict_data['smarthome']
     aircon = smarthome['aircon']
     gas = smarthome['gas']
     light = smarthome['light']
     window = smarthome['window']
 
-    # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수
     if aircon['enabled']:
         aircon_enable = '1'
     else:
         aircon_enable = '0'
+    aircon_fan = int(aircon['fan_level'] / 10)
+
+    if light['enabled']:
+        light_enable = '1'
+    else:
+        light_enable = '0'
+    light_brightness = int(light['brightness'] / 10)
+    if light['color'] == "white": # 다양한색깔 구문 ^^!
+        light_color = '0'
+    else:
+        light_color = '1'
+    if light['mod'] == "Blink":
+        light_mod = '0'
+    else:
+        light_mod = '1'
+
+    if window['enabled']:
+        window_enable = '1'
+    else:
+        window_enable = '0'
+    if gas['enabled']:
+        gas_enable = '1'
+    else:
+        gas_enable = '0'
+
+    return aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
 
 
 def dict_for_smarthome(dict_data):
     # 스케쥴 DB에서 가져온 dict 데이터를, 스마트홈 가전제어 프로토콜에 사용하기 위한 변수로 변환해주는 함수
-    aircon = dict_data['Device_aircon']
+    if str(type(dict_data)) != "<class 'dict'>":
+        raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
 
+    # 이건좀 아닌듯 ㅋㅋ 고쳐야겟다 .. 다시 원복 ㄱㄱ
+    try:
+        aircon = dict_data['Device_aircon']
+    except Exception as e:
+        pass
+    try:
+        light = dict_data['Device_light']
+    except Exception as e:
+        pass
+    try:
+        window = dict_data['Device_window']
+    except Exception as e:
+        pass
+    try:
+        gas = dict_data['Device_gas']
+    except Exception as e:
+        pass
+    ######################
 
     try:
-        if dict_data['Device_aircon'][0]:
+        if aircon[0]:
             aircon_enable = '1'
         else:
             aircon_enable = '0'
     except Exception as e:
         aircon_enable = '2'
     try:
-        aircon_power = str(dict_data['Device_aircon'][1])
+        aircon_fan = str(aircon[1])
     except Exception as e:
-        aircon_power = '0'
+        aircon_fan = '0'
 
     try:
-        if dict_data['Device_light'][0]:
+        if light[0]:
             light_enable = '1'
         else:
             light_enable = '0'
     except Exception as e:
         light_enable = '2'
     try:
-        light_brightness = str(dict_data['Device_light'][1])
+        light_brightness = str(light[1])
     except Exception as e:
         light_brightness = '9'
     try:
-        light_color = str(dict_data['Device_light'][2])
+        light_color = str(light[2])
     except Exception as e:
         light_color = '0'
     try:
-        light_mod = str(dict_data['Device_light'][3])
+        light_mod = str(light[3])
     except Exception as e:
         light_mod = '0'
 
     try:
-        if dict_data['Device_window'][0]:
+        if window[0]:
             window_enable = '1'
         else:
             window_enable = '0'
     except Exception as e:
         window_enable = '2'
     try:
-        if dict_data['Device_gas'][0]:
+        if gas[0]:
             gas_enable = '1'
         else:
             gas_enable = '0'
     except Exception as e:
         gas_enable = '2'
 
-    return aircon_enable, aircon_power, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
+    return aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
 
 
-def send_control_smarthome(aircon_enable, aircon_power,
+def send_control_smarthome(aircon_enable, aircon_fan,
                            light_enable, light_brightness, light_color, light_mod,
                            window_enable, gas_enable):
-    message = aircon_enable + aircon_power + light_enable + light_brightness + light_color + light_mod + window_enable + gas_enable
+    message = aircon_enable + aircon_fan + light_enable + light_brightness + light_color + light_mod + window_enable + gas_enable
 
     # MQTT를 통해 '스마트홈 가전제어' 메세지 전송
     be_channel.publish_exchange('webos.topic', 'webos.smarthome.info', message)
@@ -393,11 +438,10 @@ t.start()
 # 반복 실행
 #
 ##############################################################################
-while True:
+while True: # 메인루프에 전체적으로 딜레이시간을 주는걸로? (참고로 스마트홈 업데이트 갱신주기가 1분)
     # RealTime DB 값 불러오기
     try:
         rtdb_dict_data = read_jsonfile(json_file_path)
-        time.sleep(10)
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : RealTimeDB.JSON을 불러오는 중에 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
@@ -419,16 +463,35 @@ while True:
             # 현재 실행해야 하는 스케쥴인지 확인
             print(check_schedule_now(schedule_dict))
             if check_schedule_now(schedule_dict):
-                print("<---------------->")
-                # 실시간DB의 값과, 실행해야 하는 명령을 확인하여 차이가 있는 부분만 명령으로 전달
-
+                # 실시간DB의 값을 '스마트홈 프로토콜 형식'으로 변환
+                o1, o2, o3, o4, o5, o6, o7, o8 = dict_realtimedb_for_smarthome(rtdb_dict_data)
 
                 # '스마트홈 프로토콜 형식'으로 명령 생성
                 m1, m2, m3, m4, m5, m6, m7, m8 = dict_for_smarthome(schedule_dict)
 
-                # 해당명령을 '스마트홈 큐'로 전달
-                send_control_smarthome(m1, m2, m3, m4, m5, m6, m7, m8)
-                print("<---------------->")
+                # 스케쥴값과 실시간DB값을 비교하여, 실행해야 하는 명령만 명령으로 확정
+                #print("{0} {1} {2} {3} {4} {5} {6} {7}".format(o1,o2,o3,o4,o5,o6,o7,o8))
+                #print("{0} {1} {2} {3} {4} {5} {6} {7}".format(m1,m2,m3,m4,m5,m6,m7,m8))
+                flag_sendmsg = False
+                if m1 != o1 and m1 != '2': # on/off값이 기존과 다르고, 현행유지 상태가 아니라면 명령을 새로 내린다.
+                    flag_sendmsg = True
+                elif m1 == '1' and m2 != o2: # 밝기제어값이 다른경우
+                    flag_sendmsg = True
+
+                if m3 != o3 and m3 != '2':
+                    flag_sendmsg = True
+                elif m3 == '1' and (m4 != o4 or m5 != o5 or m6 != o7):
+                    flag_sendmsg = True
+
+                if m7 != o7 and m7 != '2':
+                    flag_sendmsg = True
+                if m8 != o8 and m8 != '2':
+                    flag_sendmsg = True
+
+                # 새로 진행해야할 명령이 있따면, 해당명령을 '스마트홈 큐'로 전달
+                #print("flag : %r" % str(flag_sendmsg))
+                if flag_sendmsg:
+                    send_control_smarthome(m1, m2, m3, m4, m5, m6, m7, m8)
 
     except Exception as e:
         alert_error("data.error.error",
