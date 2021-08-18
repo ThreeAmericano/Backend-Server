@@ -138,16 +138,19 @@ def alert_error(routing_key, message):
     dict_msg = {"Producer": "server", "command": "alert", "msg": str(message)}
     json_dump = json.dumps(dict_msg, ensure_ascii=False)
     try:
-        be_channel.publish_exchange('webos.topic', routing_key, json_dump)
         sl.slack_post_message('#server', message)
     except Exception as e:
-        print("<><><> 에러메세지 전송에 실패했습니다. %r <><><>" % e)
+        print("========== SLACK 메세지 전송에 실패했습니다. ========== %r" % e)
+    try:
+        be_channel.publish_exchange('webos.topic', routing_key, json_dump)
+    except Exception as e:
+        print("========== MQTT로 에러메세지 전송에 실패했습니다.  ========== %r" % e)
         return False
 
 
 def read_jsonfile(file_path):
-    with open(file_path, "r") as json_file:
-        dict_data = str(json.load(json_file))
+    with open(file_path, "r", encoding='UTF-8', errors='ignore') as json_file:
+        dict_data = json.load(json_file)
         return dict_data
 
 
@@ -156,8 +159,25 @@ def json_key_is_there(json_data, key_list):
         temp = json_data[key]
 
 
+def dict_realtimedb_for_smarthome(dict_data):
+    smarthome = dict_data['smarthome']
+    aircon = smarthome['aircon']
+    gas = smarthome['gas']
+    light = smarthome['light']
+    window = smarthome['window']
+
+    # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수
+    if aircon['enabled']:
+        aircon_enable = '1'
+    else:
+        aircon_enable = '0'
+
+
 def dict_for_smarthome(dict_data):
     # 스케쥴 DB에서 가져온 dict 데이터를, 스마트홈 가전제어 프로토콜에 사용하기 위한 변수로 변환해주는 함수
+    aircon = dict_data['Device_aircon']
+
+
     try:
         if dict_data['Device_aircon'][0]:
             aircon_enable = '1'
@@ -400,7 +420,13 @@ while True:
             print(check_schedule_now(schedule_dict))
             if check_schedule_now(schedule_dict):
                 print("<---------------->")
+                # 실시간DB의 값과, 실행해야 하는 명령을 확인하여 차이가 있는 부분만 명령으로 전달
+
+
+                # '스마트홈 프로토콜 형식'으로 명령 생성
                 m1, m2, m3, m4, m5, m6, m7, m8 = dict_for_smarthome(schedule_dict)
+
+                # 해당명령을 '스마트홈 큐'로 전달
                 send_control_smarthome(m1, m2, m3, m4, m5, m6, m7, m8)
                 print("<---------------->")
 
