@@ -2,7 +2,7 @@
 ##############################################################################
 #
 #       [ 파이어베이스 스케줄 조회 로직 샘플 Program ]
-#   수정일 : 2021-08-16
+#   수정일 : 2021-08-18
 #   작성자 : 최현식(chgy2131@naver.com)
 #
 ##############################################################################
@@ -100,11 +100,15 @@ def check_schedule_now(dict_data):
         # 일회성 로직인 경우
         active_time = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:16]))
         now_time = int(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
+
+        # 확인 조건문
         if (active_time - 1) <= now_time <= (active_time + 1):
             check_state = True
     else:
         # 주기적 로직인 경우
-        print("오늘요일 : %r" % dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))])
+        now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))] # 동작 요일 확인
+        if not now_dayoftheweek:
+            return False
 
         # 일단 STR을 INT형으로 바꾼다음에 연산해야함.
         now_time = int(time.strftime("%H%M", time.localtime(time.time())))
@@ -130,6 +134,7 @@ def check_schedule_now(dict_data):
             check_state = False
 
     return check_state
+
 
 ##############################################################################
 #
@@ -185,10 +190,15 @@ try:
                         "WARNING : FireStore DB에 형식이 잘못된 데이터가 있습니다. 확인이 필요합니다. *문서ID : " + str(
                             doc.id) + " / *오류명 : " + str(e))
             continue
+
+        # 현재 실행해야 하는 스케쥴인지 확인
         print(check_schedule_now(schedule_dict))
+        if check_schedule_now(schedule_dict):
+            pass
+
 except Exception as e:
     alert_error("data.error.error",
-                "ERROR : FireStore DB에서 데이터를 불러오는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
+                "ERROR : FireStore Schedule 값을 처리하는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
 '''
 for key in schedule_dict:

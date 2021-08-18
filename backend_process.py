@@ -2,12 +2,12 @@
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-08-14
+#   수정일 : 2021-08-18
 #   작성자 : 최현식(chgy2131@naver.com)
 #   변경점 (해야할거)
-#        - 스마트홈 기기 제어 부분 추가해야함
-#        - RealTime DB 값을 json파일을 통해 로드하는 로직 작성.
-#        - 날씨 데이터 갱신 로직을 다른 파일로 분리함.
+#        - 파이어스토어 스케쥴 확인 부분 추가
+#        - 스마트홈 기기 제어 부분 추가
+#        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
 #
 ##############################################################################
 
@@ -21,6 +21,7 @@ import time
 import threading
 import json
 import firebase_admin
+import re
 from firebase_admin import credentials
 from firebase_admin import firestore
 from module.rabbitmq import rabbitmq_clinet
@@ -166,6 +167,79 @@ def read_firestore(collection_name):
     return docs
 
 
+def update_schedule(collection_name, doc_title, dict_data):
+    # 파이어베이스에 업로드하기 전, 데이터 무결성 검사
+    check_schedule_right(dict_data)
+
+    # 파이어베이스에 데이터 업로드
+    doc_ref = db.collection(u'schedule_mode').document(doc_title)
+    doc_ref.set(dict_data)
+
+
+def check_schedule_right(dict_data):
+    if str(type(dict_data)) != "<class 'dict'>":
+        raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
+
+    temp = (dict_data['UID'])
+    temp = (dict_data['Enabled'])
+    temp = (dict_data['One_time'])
+
+    if dict_data['One_time'] == True:
+        temp = (dict_data['Active_date'])
+    elif dict_data['One_time'] == False:
+        temp = (dict_data['Daysofweek'])
+        temp = (dict_data['Start_time'])
+        temp = (dict_data['End_time'])
+    else:
+        raise Exception("해당 문서에 'One_time'값이 bool형식이 아닙니다.")
+
+
+def check_schedule_now(dict_data):
+    if not dict_data['Enabled']:
+        return False
+
+    check_state = False
+
+    if dict_data['One_time']:
+        # 일회성 로직인 경우
+        active_time = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:16]))
+        now_time = int(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
+
+        # 확인 조건문
+        if (active_time - 1) <= now_time <= (active_time + 1):
+            check_state = True
+    else:
+        # 주기적 로직인 경우
+        now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))] # 동작 요일 확인
+        if not now_dayoftheweek:
+            return False
+
+        # 일단 STR을 INT형으로 바꾼다음에 연산해야함.
+        now_time = int(time.strftime("%H%M", time.localtime(time.time())))
+        start_time = int(dict_data['Start_time'])
+        end_time = int(dict_data['End_time'])
+        check_state = False
+
+        # 확인 조건문
+        if (start_time < now_time) and (now_time < end_time):
+            # 현재시간이 시작시간과 끝시간 사이에 위치한 경우
+            check_state = True
+        elif end_time < start_time:
+            # 동작시간이 자정을 넘어서까지 있을때
+            if start_time < now_time:
+                # 아직 자정을 넘지 않은 경우
+                check_state = True
+            elif now_time < end_time:
+                # 자정을 넘었지만 아직 종료시간이 아닌 경우
+                check_state = True
+            else:
+                check_state = False
+        else:
+            check_state = False
+
+    return check_state
+
+
 def on_mqtt_message(channel, method_frame, header_frame, body):
     print("[ Recive Message from MQTT Queue ]")
     # 메세지 내용을 JSON 형태로 정제
@@ -249,10 +323,26 @@ while True:
 
     # FireStore Schedule 값 불러오기
     try:
-        read_firestore('schedule_mode')
+        schedule_query = read_firestore('schedule_mode')
+        for doc in schedule_query:
+            schedule_dict = doc.to_dict()
+            try:
+                print("[%r]" % str(doc.id))
+                check_schedule_right(schedule_dict)
+            except Exception as e:
+                alert_error("data.error.error",
+                            "WARNING : FireStore DB에 형식이 잘못된 데이터가 있습니다. 확인이 필요합니다. *문서ID : " + str(
+                                doc.id) + " / *오류명 : " + str(e))
+                continue
+
+            # 현재 실행해야 하는 스케쥴인지 확인
+            print(check_schedule_now(schedule_dict))
+            if check_schedule_now(schedule_dict):
+                pass
+
     except Exception as e:
         alert_error("data.error.error",
-                    "ERROR : FireStore DB에서 데이터를 불러오는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
+                    "ERROR : FireStore Schedule 값을 처리하는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
     # 또 어떤 로직이 이곳에 오게될것인가~
 
