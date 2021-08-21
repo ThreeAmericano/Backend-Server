@@ -24,7 +24,7 @@ IP : 211.179.42.130 (VPN Network : 10.6.0.1)
 
 PORT : 51820 (UDP)
 
-VPN Type : WireGuard
+VPN Type : openVPN
 
 DNS 제공자 : 구글 (8.8.8.8)
 
@@ -84,7 +84,7 @@ curl -L https://install.pivpn.io | bash
 
 ### VPN Network 연결정보
 
-`ifconfig` 명령어를 사용해서보면 새로 `wg0` 라는 WireGuard 네트워크가 추가된 것을 확인할 수 있습니다.
+`ifconfig` 명령어를 사용해서보면 새로 `tun0` 라는 openVPN 네트워크가 추가된 것을 확인할 수 있습니다. (참고로 wireguard는 `wg0` 입니다.)
 
 ```sh
  $ ifconfig
@@ -106,12 +106,13 @@ lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
         TX packets 689  bytes 39597 (38.6 KiB)
         TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
 
-wg0: flags=209<UP,POINTOPOINT,RUNNING,NOARP>  mtu 1420
-        inet 10.6.0.1  netmask 255.255.255.0  destination 10.6.0.1
-        unspec 00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00  txqueuelen 1000  (UNSPEC)
-        RX packets 0  bytes 0 (0.0 B)
+tun0: flags=4305<UP,POINTOPOINT,RUNNING,NOARP,MULTICAST>  mtu 1500
+        inet 10.8.0.1  netmask 255.255.255.0  destination 10.8.0.1
+        inet6 fe80::5633:be3:3e8a:3210  prefixlen 64  scopeid 0x20<link>
+        unspec 00-00-00-00-00-00-00-00-00-00-00-00-00-00-00-00  txqueuelen 100  (UNSPEC)
+        RX packets 3095  bytes 1467780 (1.3 MiB)
         RX errors 0  dropped 0  overruns 0  frame 0
-        TX packets 0  bytes 0 (0.0 B)
+        TX packets 7202  bytes 3191705 (3.0 MiB)
         TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
 
 wlan0: flags=4099<UP,BROADCAST,MULTICAST>  mtu 1500
@@ -121,50 +122,6 @@ wlan0: flags=4099<UP,BROADCAST,MULTICAST>  mtu 1500
         TX packets 0  bytes 0 (0.0 B)
         TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
 ```
-
-
-
-
-
-## VPN에 외부인터넷 연결 추가하기
-
-### 설정파일 수정
-
-`/etc/wireguard/wg0.conf` 파일에 아래와 같은 코드를 추가합니다.
-
-```sh
-PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
-```
-
-이후부터 `wg-quick` 명령어를 이용하여 해당 네트워크를 조작할때 외부인터넷연결과 관련된 동작이 자동으로 실행됩니다.
-
-```sh
-root@:/etc/wireguard# wg-quick down wg0
-[#] ip link delete dev wg0
-[#] iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
-iptables: Bad rule (does a matching rule exist in that chain?).
-
-root@:/etc/wireguard# wg-quick up wg0
-[#] ip link add wg0 type wireguard
-[#] wg setconf wg0 /dev/fd/63
-[#] ip -4 address add 10.6.0.1/24 dev wg0
-[#] ip link set mtu 1420 up dev wg0
-[#] iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-```
-
-
-
-또한 해당 네트워크 명령이 시스템부팅시 자동으로 실행되도록 아래 명령어를 서비스에 등록합니다.
-
-```sh
-$ systemctl enable wg-quick@wg0
-```
-
-
-
-
-
 
 
 ## VPN profile 관리
@@ -201,7 +158,8 @@ localTest 라는 이름에 인증서를 새로 만듭니다. 아래 예제는 `l
 ======================================================================
 ```
 
-해당 인증서는 `home/<리눅스계정>/configs` 경로에서 확인할 수 있습니다.
+해당 인증서는 openVPN의 경우 `home/<리눅스계정>/ovpns' 경로에서 확인할 수 있습니다.
+(WireGuard의 경우 `home/<리눅스계정>/configs`)
 
 ```sh
 ~/configs $ ls
@@ -216,8 +174,45 @@ localTest.conf
 $ pivpn -r <인증서이름>
 ```
 
+---
 
 
+
+# 이하 WireGuard 관련내용 (현재는 사용하지 않음)
+## VPN에 외부인터넷 연결 추가하기
+
+### 설정파일 수정
+
+`/etc/wireguard/wg0.conf` 파일에 아래와 같은 코드를 추가합니다.
+
+```sh
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+```
+
+이후부터 `wg-quick` 명령어를 이용하여 해당 네트워크를 조작할때 외부인터넷연결과 관련된 동작이 자동으로 실행됩니다.
+
+```sh
+root@:/etc/wireguard# wg-quick down wg0
+[#] ip link delete dev wg0
+[#] iptables -D FORWARD -i wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+iptables: Bad rule (does a matching rule exist in that chain?).
+
+root@:/etc/wireguard# wg-quick up wg0
+[#] ip link add wg0 type wireguard
+[#] wg setconf wg0 /dev/fd/63
+[#] ip -4 address add 10.6.0.1/24 dev wg0
+[#] ip link set mtu 1420 up dev wg0
+[#] iptables -A FORWARD -i wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+```
+
+
+
+또한 해당 네트워크 명령이 시스템부팅시 자동으로 실행되도록 아래 명령어를 서비스에 등록합니다.
+
+```sh
+$ systemctl enable wg-quick@wg0
+```
 
 
 
