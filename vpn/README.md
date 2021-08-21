@@ -29,11 +29,15 @@ VPN Type : openVPN
 DNS 제공자 : 구글 (8.8.8.8)
 
 
+openVPN 설정파일 위치  
+<확인필요>  
 
-설정파일 위치 : /etc/wireguard/wg0.conf
-/etc/pivpn/wireguard/setupVars.conf
 
-key 파일들도 위 폴더에 있음.
+WireGuard 설정파일 위치  
+`/etc/wireguard/wg0.conf`  
+`/etc/pivpn/wireguard/setupVars.conf`  
+
+key 파일들도 위 폴더에 있음.  
 
 
 
@@ -51,7 +55,7 @@ curl -L https://install.pivpn.io | bash
 
 ### VPN Port
 
-`51820`
+UDP `51820`
 
 
 
