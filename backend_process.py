@@ -1,8 +1,8 @@
-#-*-coding:utf-8-*-
+# -*-coding:utf-8-*-
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-08-19
+#   수정일 : 2021-08-22
 #   작성자 : 최현식(chgy2131@naver.com)
 #   변경점 (해야할거)
 #        - 파이어스토어 스케쥴 확인 부분 추가
@@ -31,10 +31,12 @@ slack_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_project_name = 'threeamericano'
 json_file_path = "./realtimedb.json"
-#mqtt_server_ip = '211.179.42.130'
-#mqtt_server_port = 5672
-#mqtt_server_id = 'rabbit'
-#mqtt_server_pw = 'MQ321'
+
+
+# mqtt_server_ip = '211.179.42.130'
+# mqtt_server_port = 5672
+# mqtt_server_id = 'rabbit'
+# mqtt_server_pw = 'MQ321'
 
 
 def receive_car_signup(json_data):
@@ -85,7 +87,7 @@ def receive_car_signin(json_data):
 def receive_android_signup(json_data):
     # JSON 데이터 유효성 검사 (KEY 확인)
     try:
-        json_key_is_there(json_data,['UID', 'name'])
+        json_key_is_there(json_data, ['UID', 'name'])
     except Exception as e:
         alert_error('webos.android.error',
                     "ERROR : 도착한 JSON 데이터의 형식이 기존 규약과 상이합니다. 확인이 필요합니다. *오류내용 : " + "KeyError." + str(e))
@@ -178,7 +180,7 @@ def dict_realtimedb_for_smarthome(dict_data):
     else:
         light_enable = '0'
     light_brightness = int(light['brightness'] / 10)
-    if light['color'] == "white": # 다양한색깔 구문 ^^!
+    if light['color'] == "white":  # 다양한색깔 구문 ^^!
         light_color = '0'
     else:
         light_color = '1'
@@ -204,66 +206,47 @@ def dict_for_smarthome(dict_data):
     if str(type(dict_data)) != "<class 'dict'>":
         raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
 
-    # 이건좀 아닌듯 ㅋㅋ 고쳐야겟다 .. 다시 원복 ㄱㄱ
     try:
-        aircon = dict_data['Device_aircon']
-    except Exception as e:
-        pass
-    try:
-        light = dict_data['Device_light']
-    except Exception as e:
-        pass
-    try:
-        window = dict_data['Device_window']
-    except Exception as e:
-        pass
-    try:
-        gas = dict_data['Device_gas']
-    except Exception as e:
-        pass
-    ######################
-
-    try:
-        if aircon[0]:
+        if dict_data['Device_aircon'][0]:
             aircon_enable = '1'
         else:
             aircon_enable = '0'
     except Exception as e:
         aircon_enable = '2'
     try:
-        aircon_fan = str(aircon[1])
+        aircon_fan = str(dict_data['Device_aircon'][1])
     except Exception as e:
         aircon_fan = '0'
 
     try:
-        if light[0]:
+        if dict_data['Device_light'][0]:
             light_enable = '1'
         else:
             light_enable = '0'
     except Exception as e:
         light_enable = '2'
     try:
-        light_brightness = str(light[1])
+        light_brightness = str(dict_data['Device_light'][1])
     except Exception as e:
         light_brightness = '9'
     try:
-        light_color = str(light[2])
+        light_color = str(dict_data['Device_light'][2])
     except Exception as e:
         light_color = '0'
     try:
-        light_mod = str(light[3])
+        light_mod = str(dict_data['Device_light'][3])
     except Exception as e:
         light_mod = '0'
 
     try:
-        if window[0]:
+        if dict_data['Device_window'][0]:
             window_enable = '1'
         else:
             window_enable = '0'
     except Exception as e:
         window_enable = '2'
     try:
-        if gas[0]:
+        if dict_data['Device_gas'][0]:
             gas_enable = '1'
         else:
             gas_enable = '0'
@@ -336,7 +319,7 @@ def check_schedule_now(dict_data):
             check_state = True
     else:
         # 주기적 로직인 경우
-        now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))] # 동작 요일 확인
+        now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))]  # 동작 요일 확인
         if not now_dayoftheweek:
             return False
 
@@ -389,16 +372,16 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
     # 해당 메세지를 처리할 수 있는 함수가 있는지 확인
     function_name = str(json_data['Producer']) + '_' + str(json_data['command'])
     globals_var = str(globals())
-    if globals_var.find('receive_'+function_name) == -1:
-        alert_error('webos.'+json_data['Producer']+'.error',
-                    "WARNING : 처리함수가 없는 데이터가 들어왔습니다. 이를 무시합니다. *로딩함수명 : " + str('receive_'+function_name))
+    if globals_var.find('receive_' + function_name) == -1:
+        alert_error('webos.' + json_data['Producer'] + '.error',
+                    "WARNING : 처리함수가 없는 데이터가 들어왔습니다. 이를 무시합니다. *로딩함수명 : " + str('receive_' + function_name))
         return False
 
     # 해당 메세지 처리 함수로 연결
     try:
-        globals()[str('receive_'+function_name)](json_data)
+        globals()[str('receive_' + function_name)](json_data)
     except Exception as e:
-        alert_error('webos.'+json_data['Producer']+'.error',
+        alert_error('webos.' + json_data['Producer'] + '.error',
                     "ERROR : 처리함수 실행중 에러가 발생했습니다. 확인이 필요합니다. *오류명 : " + str(e))
         return False
 
@@ -420,11 +403,11 @@ firebase_admin.initialize_app(cred, {
 db = firestore.client()
 
 # RabbitMQ 연결 및 정보등록
-#rb = rabbitmq_clinet.RabbitmqClient(mqtt_server_ip, mqtt_server_port, mqtt_server_id, mqtt_server_pw)
+# rb = rabbitmq_clinet.RabbitmqClient(mqtt_server_ip, mqtt_server_port, mqtt_server_id, mqtt_server_pw)
 rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
 mqtt_conn = rb.connect_server()
 
-be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn) # 백엔드 처리용 MQTT 채널
+be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn)  # 백엔드 처리용 MQTT 채널
 be_channel.open_channel()
 be_channel.consume_setting('webos.server', on_mqtt_message)
 
@@ -432,27 +415,29 @@ be_channel.consume_setting('webos.server', on_mqtt_message)
 t = threading.Thread(target=be_channel.consume_starting, daemon=True)
 t.start()
 
-
 ##############################################################################
 #
 # 반복 실행
 #
 ##############################################################################
-while True: # 메인루프에 전체적으로 딜레이시간을 주는걸로? (참고로 스마트홈 업데이트 갱신주기가 1분)
+while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? (참고로 스마트홈 업데이트 갱신주기가 1분)
     # RealTime DB 값 불러오기
     try:
-        rtdb_dict_data = read_jsonfile(json_file_path)
+        rtdb_dict_data = read_jsonfile(json_file_path)  # 정안되면 이걸 json이 아닌 config로 만들어..?
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : RealTimeDB.JSON을 불러오는 중에 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
     # FireStore Schedule 값 불러오기
     try:
+        # FireStore의 schedule_mode 컬렉션 불러오기
         schedule_query = read_firestore('schedule_mode')
+
+        # 각 문서(doc)별로 내용 분석
         for doc in schedule_query:
             schedule_dict = doc.to_dict()
             try:
-                print("[%r]" % str(doc.id))
+                # DB에 저장되어있던 스케쥴 형식이 정상적인 형식인지 확인
                 check_schedule_right(schedule_dict)
             except Exception as e:
                 alert_error("data.error.error",
@@ -461,7 +446,6 @@ while True: # 메인루프에 전체적으로 딜레이시간을 주는걸로? (
                 continue
 
             # 현재 실행해야 하는 스케쥴인지 확인
-            print(check_schedule_now(schedule_dict))
             if check_schedule_now(schedule_dict):
                 # 실시간DB의 값을 '스마트홈 프로토콜 형식'으로 변환
                 o1, o2, o3, o4, o5, o6, o7, o8 = dict_realtimedb_for_smarthome(rtdb_dict_data)
@@ -470,12 +454,12 @@ while True: # 메인루프에 전체적으로 딜레이시간을 주는걸로? (
                 m1, m2, m3, m4, m5, m6, m7, m8 = dict_for_smarthome(schedule_dict)
 
                 # 스케쥴값과 실시간DB값을 비교하여, 실행해야 하는 명령만 명령으로 확정
-                #print("{0} {1} {2} {3} {4} {5} {6} {7}".format(o1,o2,o3,o4,o5,o6,o7,o8))
-                #print("{0} {1} {2} {3} {4} {5} {6} {7}".format(m1,m2,m3,m4,m5,m6,m7,m8))
+                # print("{0} {1} {2} {3} {4} {5} {6} {7}".format(o1,o2,o3,o4,o5,o6,o7,o8))
+                # print("{0} {1} {2} {3} {4} {5} {6} {7}".format(m1,m2,m3,m4,m5,m6,m7,m8))
                 flag_sendmsg = False
-                if m1 != o1 and m1 != '2': # on/off값이 기존과 다르고, 현행유지 상태가 아니라면 명령을 새로 내린다.
+                if m1 != o1 and m1 != '2':  # on/off값이 기존과 다르고, 현행유지 상태가 아니라면 명령을 새로 내린다.
                     flag_sendmsg = True
-                elif m1 == '1' and m2 != o2: # 밝기제어값이 다른경우
+                elif m1 == '1' and m2 != o2:  # 밝기제어값이 다른경우
                     flag_sendmsg = True
 
                 if m3 != o3 and m3 != '2':
@@ -489,7 +473,7 @@ while True: # 메인루프에 전체적으로 딜레이시간을 주는걸로? (
                     flag_sendmsg = True
 
                 # 새로 진행해야할 명령이 있따면, 해당명령을 '스마트홈 큐'로 전달
-                #print("flag : %r" % str(flag_sendmsg))
+                # print("flag : %r" % str(flag_sendmsg))
                 if flag_sendmsg:
                     send_control_smarthome(m1, m2, m3, m4, m5, m6, m7, m8)
 
@@ -498,4 +482,4 @@ while True: # 메인루프에 전체적으로 딜레이시간을 주는걸로? (
                     "ERROR : FireStore Schedule 값을 처리하는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
     # 또 어떤 로직이 이곳에 오게될것인가~
-
+    time.sleep(3600)
