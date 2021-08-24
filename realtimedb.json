@@ -1,37 +1,19 @@
 {
-    "Sensor": {
-        "data": 555
-    },
-    "car": "hello94829",
     "sensor": {
         "hometemp": {
             "humi": 75,
             "temp": 30
         },
         "openweather": {
-            "air_level": 2,
-            "description": "맑음",
-            "icon": "01n",
+            "air_level": 4,
+            "description": "실 비",
+            "icon": "10d",
             "temp": "22.8",
-            "update": "2021-08-18 22:40:51.242650"
+            "update": "2021-08-23 15:26:13.200128"
         }
     },
     "smarthome": {
-        "aircon": {
-            "enabled": "off",
-            "fan_level": 1
-        },
-        "gas": {
-            "enabled": "off"
-        },
-        "light": {
-            "brightness": 80,
-            "color": "white",
-            "enabled": "on",
-            "mod": "Blink"
-        },
-        "window": {
-            "enabled": false
-        }
+        "mode": 0,
+        "status": "005051110"
     }
 }

@@ -164,47 +164,27 @@ def json_key_is_there(json_data, key_list):
 def dict_realtimedb_for_smarthome(dict_data):
     # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수
     smarthome = dict_data['smarthome']
-    aircon = smarthome['aircon']
-    gas = smarthome['gas']
-    light = smarthome['light']
-    window = smarthome['window']
+    mode = smarthome['mode']
+    status = smarthome['status']
 
-    if aircon['enabled']:
-        aircon_enable = '1'
-    else:
-        aircon_enable = '0'
-    aircon_fan = int(aircon['fan_level'] / 10)
+    aircon_enable = status[0:1]
+    aircon_fan = status[1:2]
+    light_enable = status[2:3]
+    light_brightness = status[3:4]
+    light_color = status[4:5]
+    light_mod = status[5:6]
+    window_enable = status[6:7]
+    gas_enable = status[7:8]
 
-    if light['enabled']:
-        light_enable = '1'
-    else:
-        light_enable = '0'
-    light_brightness = int(light['brightness'] / 10)
-    if light['color'] == "white":  # 다양한색깔 구문 ^^!
-        light_color = '0'
-    else:
-        light_color = '1'
-    if light['mod'] == "Blink":
-        light_mod = '0'
-    else:
-        light_mod = '1'
-
-    if window['enabled']:
-        window_enable = '1'
-    else:
-        window_enable = '0'
-    if gas['enabled']:
-        gas_enable = '1'
-    else:
-        gas_enable = '0'
-
-    return aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
+    return mode, aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
 
 
 def dict_for_smarthome(dict_data):
     # 스케쥴 DB에서 가져온 dict 데이터를, 스마트홈 가전제어 프로토콜에 사용하기 위한 변수로 변환해주는 함수
     if str(type(dict_data)) != "<class 'dict'>":
         raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
+
+    do_type = dict_data['type']
 
     try:
         if dict_data['Device_aircon'][0]:
@@ -253,7 +233,7 @@ def dict_for_smarthome(dict_data):
     except Exception as e:
         gas_enable = '2'
 
-    return aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
+    return do_type, aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
 
 
 def send_control_smarthome(aircon_enable, aircon_fan,
@@ -290,26 +270,23 @@ def check_schedule_right(dict_data):
         raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
 
     temp = (dict_data['UID'])
-    temp = (dict_data['Enabled'])
-    temp = (dict_data['One_time'])
+    temp = (dict_data['type'])
 
-    if dict_data['One_time'] == True:
+    if dict_data['type'] == 'once':
         temp = (dict_data['Active_date'])
-    elif dict_data['One_time'] == False:
+    elif dict_data['type'] == 'repet':
+        temp = (dict_data['Enabled'])
         temp = (dict_data['Daysofweek'])
         temp = (dict_data['Start_time'])
-        temp = (dict_data['End_time'])
+    elif dict_data['type'] == 'mode':
+        pass
     else:
-        raise Exception("해당 문서에 'One_time'값이 bool형식이 아닙니다.")
+        raise Exception("해당 문서에 'type'값에 형식이 잘못되었습니다. 실행함수:check_schedule_right. ")
 
 
 def check_schedule_now(dict_data):
-    if not dict_data['Enabled']:
-        return False
-
     check_state = False
-
-    if dict_data['One_time']:
+    if dict_data['type'] == 'once':
         # 일회성 로직인 경우
         active_time = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:16]))
         now_time = int(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
@@ -317,34 +294,28 @@ def check_schedule_now(dict_data):
         # 확인 조건문
         if (active_time - 1) <= now_time <= (active_time + 1):
             check_state = True
-    else:
+    elif dict_data['type'] == 'repet':
+        # 실행해야되는건지 일단 확인
+        if not dict_data['Enabled']:
+            return False
+
         # 주기적 로직인 경우
         now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))]  # 동작 요일 확인
         if not now_dayoftheweek:
             return False
 
-        # 일단 STR을 INT형으로 바꾼다음에 연산해야함.
+        # 일단 STR을 INT형으로 바꾼후 비교문 연산
         now_time = int(time.strftime("%H%M", time.localtime(time.time())))
         start_time = int(dict_data['Start_time'])
-        end_time = int(dict_data['End_time'])
-        check_state = False
 
-        # 확인 조건문
-        if (start_time < now_time) and (now_time < end_time):
-            # 현재시간이 시작시간과 끝시간 사이에 위치한 경우
+        if (start_time - 1 <= now_time) and (now_time <= start_time + 1):
             check_state = True
-        elif end_time < start_time:
-            # 동작시간이 자정을 넘어서까지 있을때
-            if start_time < now_time:
-                # 아직 자정을 넘지 않은 경우
-                check_state = True
-            elif now_time < end_time:
-                # 자정을 넘었지만 아직 종료시간이 아닌 경우
-                check_state = True
-            else:
-                check_state = False
         else:
             check_state = False
+    elif dict_data['type'] == 'mode':  #모드는 서버에서 직접 실행되지 않음
+        check_state = False
+    else:
+        raise Exception("해당 문서에 'type'값에 형식이 잘못되었습니다. 실행함수:check_schedule_now. ")
 
     return check_state
 
@@ -386,6 +357,16 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
         return False
 
 
+def thread_mqtt_consume(conn):
+    # 채널 생성 및 구독 정보 입력
+    consume_channel = rabbitmq_clinet.RabbitmqChannel(conn)
+    consume_channel.open_channel()
+    consume_channel.consume_setting('webos.server', on_mqtt_message)
+
+    # 해당 큐 구독 시작
+    consume_channel.consume_starting()
+
+
 ##############################################################################
 #
 # 초기설정 (Init)
@@ -409,10 +390,9 @@ mqtt_conn = rb.connect_server()
 
 be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn)  # 백엔드 처리용 MQTT 채널
 be_channel.open_channel()
-be_channel.consume_setting('webos.server', on_mqtt_message)
 
 # RabbitMQ 실제 실행구문 (쓰레드 실행)
-t = threading.Thread(target=be_channel.consume_starting, daemon=True)
+t = threading.Thread(target=thread_mqtt_consume, args=(mqtt_conn,), daemon=True)
 t.start()
 
 ##############################################################################
@@ -421,6 +401,8 @@ t.start()
 #
 ##############################################################################
 while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? (참고로 스마트홈 업데이트 갱신주기가 1분)
+    pass
+    '''
     # RealTime DB 값 불러오기
     try:
         rtdb_dict_data = read_jsonfile(json_file_path)  # 정안되면 이걸 json이 아닌 config로 만들어..?
@@ -448,10 +430,10 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
             # 현재 실행해야 하는 스케쥴인지 확인
             if check_schedule_now(schedule_dict):
                 # 실시간DB의 값을 '스마트홈 프로토콜 형식'으로 변환
-                o1, o2, o3, o4, o5, o6, o7, o8 = dict_realtimedb_for_smarthome(rtdb_dict_data)
+                om, o1, o2, o3, o4, o5, o6, o7, o8 = dict_realtimedb_for_smarthome(rtdb_dict_data)
 
                 # '스마트홈 프로토콜 형식'으로 명령 생성
-                m1, m2, m3, m4, m5, m6, m7, m8 = dict_for_smarthome(schedule_dict)
+                mm, m1, m2, m3, m4, m5, m6, m7, m8 = dict_for_smarthome(schedule_dict)
 
                 # 스케쥴값과 실시간DB값을 비교하여, 실행해야 하는 명령만 명령으로 확정
                 # print("{0} {1} {2} {3} {4} {5} {6} {7}".format(o1,o2,o3,o4,o5,o6,o7,o8))
@@ -476,10 +458,13 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
                 # print("flag : %r" % str(flag_sendmsg))
                 if flag_sendmsg:
                     send_control_smarthome(m1, m2, m3, m4, m5, m6, m7, m8)
+                    print("[X] send to smarthome queue")
+                # 명령 전달이후 once 인 메세지는 스케쥴에서 삭제진행 ㄱㄱ
 
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : FireStore Schedule 값을 처리하는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
-
+    '''
     # 또 어떤 로직이 이곳에 오게될것인가~
     time.sleep(3600)
+
