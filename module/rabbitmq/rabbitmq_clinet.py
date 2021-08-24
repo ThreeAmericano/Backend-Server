@@ -51,6 +51,10 @@ class RabbitmqChannel:
         self.channel = self.conn.channel()
         return self.channel
 
+    def close_channel(self):
+        # RabbitMQ 채널 연결해제
+        self.channel.close()
+
     def publish_queue(self, queue_name, message):
         # 원하는 Queue에 직접 메세지를 발행. queue_name(=routing_key)
         self.channel.basic_publish(exchange='', routing_key=queue_name,body=message)  # exchange, routing_key, body(message)를 차례로 입력

@@ -2,12 +2,14 @@
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-08-22
+#   수정일 : 2021-08-25
 #   작성자 : 최현식(chgy2131@naver.com)
 #   변경점 (해야할거)
 #        - 파이어스토어 스케쥴 확인 부분 추가
 #        - 스마트홈 기기 제어 부분 추가
 #        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
+#        - MQTT 메시지 publish(전송)시 매 시점마다 채널을 열고/닫습니다.
+#        - MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
 #
 ##############################################################################
 
@@ -137,14 +139,12 @@ def receive_android_signin(json_data):
 
 def alert_error(routing_key, message):
     print(message)
-    dict_msg = {"Producer": "server", "command": "alert", "msg": str(message)}
-    json_dump = json.dumps(dict_msg, ensure_ascii=False)
     try:
         sl.slack_post_message('#server', message)
     except Exception as e:
         print("========== SLACK 메세지 전송에 실패했습니다. ========== %r" % e)
     try:
-        be_channel.publish_exchange('webos.topic', routing_key, json_dump)
+        mqtt_publish_msg(routing_key, 'alert', message)
     except Exception as e:
         print("========== MQTT로 에러메세지 전송에 실패했습니다.  ========== %r" % e)
         return False
@@ -357,14 +357,37 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
         return False
 
 
-def thread_mqtt_consume(conn):
-    # 채널 생성 및 구독 정보 입력
-    consume_channel = rabbitmq_clinet.RabbitmqChannel(conn)
+def thread_consume_queue():
+    # RabbitMQ 연결 및 정보등록
+    rb2 = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+    conn = rb2.connect_server()
+
+    # RabbitMQ 채널 생성 및 구독 정보 입력
+    consume_channel = rabbitmq_clinet.RabbitmqChannel(conn)  # webos.server 큐 구독용 채널
     consume_channel.open_channel()
     consume_channel.consume_setting('webos.server', on_mqtt_message)
-
-    # 해당 큐 구독 시작
     consume_channel.consume_starting()
+
+
+def mqtt_publish_msg(routing_key, command, message):
+    global mqtt_conn
+    # 채널개설
+    publish_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn)  # 백엔드 처리용 MQTT 채널
+    publish_channel.open_channel()
+
+    # 전송할 메세지 작성
+    dict_msg = {"Producer": "server", "command": command, "msg": str(message)}
+    json_dump = json.dumps(dict_msg, ensure_ascii=False)
+
+    # 메세지 전달
+    try:
+        publish_channel.publish_exchange('webos.topic', routing_key, json_dump)
+    except Exception as e:
+        print("========== MQTT 메세지 전송에 실패했습니다.  ========== %r" % e)
+        return False
+
+    # 채널폐쇄
+    publish_channel.close_channel()
 
 
 ##############################################################################
@@ -384,25 +407,37 @@ firebase_admin.initialize_app(cred, {
 db = firestore.client()
 
 # RabbitMQ 연결 및 정보등록
-# rb = rabbitmq_clinet.RabbitmqClient(mqtt_server_ip, mqtt_server_port, mqtt_server_id, mqtt_server_pw)
 rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
 mqtt_conn = rb.connect_server()
 
+# RabbitMQ 채널 생성 및 구독 정보 입력
 be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn)  # 백엔드 처리용 MQTT 채널
 be_channel.open_channel()
 
-# RabbitMQ 실제 실행구문 (쓰레드 실행)
-t = threading.Thread(target=thread_mqtt_consume, args=(mqtt_conn,), daemon=True)
+# RabbitMQ 구독 진행 (쓰레드 실행)
+t = threading.Thread(target=thread_consume_queue, daemon=True)
 t.start()
+time.sleep(5)
+
+mqtt_publish_msg('webos.test.info', 'test', "1234567")
+time.sleep(3)
 
 ##############################################################################
 #
 # 반복 실행
 #
 ##############################################################################
+print(" = backend_process.py 가동을 시작합니다. = ")
+
+mqtt_publish_msg('webos.test.info', 'test', "1234567")
+i = 0
 while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? (참고로 스마트홈 업데이트 갱신주기가 1분)
     pass
     '''
+    time.sleep(1)
+    i = i + 1
+    mqtt_publish_msg('webos.test.info', 'test', i)
+    
     # RealTime DB 값 불러오기
     try:
         rtdb_dict_data = read_jsonfile(json_file_path)  # 정안되면 이걸 json이 아닌 config로 만들어..?
@@ -466,5 +501,4 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
                     "ERROR : FireStore Schedule 값을 처리하는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
     '''
     # 또 어떤 로직이 이곳에 오게될것인가~
-    time.sleep(3600)
 

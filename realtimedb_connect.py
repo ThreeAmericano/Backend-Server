@@ -2,10 +2,11 @@
 ##############################################################################
 #
 #       [ RealTime Database connect Program ]
-#   수정일 : 2021-08-15
+#   수정일 : 2021-08-24
 #   작성자 : 최현식(chgy2131@naver.com)
 #   변경점 (해야할거)
-#        - 최초작성
+#        - codecs 모듈을 추가
+#        - JSON Write 함수에 encoding을 utf8에서 utf-8로 수정
 #
 ##############################################################################
 import time
@@ -31,7 +32,7 @@ def alert_error(message):
 
 
 def write_jsonfile(file_path, dict_data):
-    with open(json_file_path, 'w', encoding='utf8') as outfile:
+    with open(json_file_path, 'w', encoding='UTF-8') as outfile:
         json.dump(dict_data, outfile, indent=4, ensure_ascii=False)
 
 
