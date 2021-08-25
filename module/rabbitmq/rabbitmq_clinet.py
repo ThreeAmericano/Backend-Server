@@ -1,6 +1,6 @@
 """
 RabbitMQ, AMQP 0-9-1 Python3 기준 작성됨
-2021-08-05 /  https://github.com/chhs2131
+2021-08-26 /  https://github.com/chhs2131
 """
 import pika
 import time
@@ -37,6 +37,9 @@ class RabbitmqClient:
         # RabbitMQ 연결 해제 : 브로커 측으로 code 0 과 , 메세지를 보냅니다.
         self.conn.close(0, 'python : Normal shutdown')
 
+    def connection_is_open(self):
+        return self.conn.is_open()
+
 
 class RabbitmqChannel:
     channel = "none"
@@ -54,6 +57,9 @@ class RabbitmqChannel:
     def close_channel(self):
         # RabbitMQ 채널 연결해제
         self.channel.close()
+
+    def channel_is_open(self):
+        return self.channel.is_open()
 
     def publish_queue(self, queue_name, message):
         # 원하는 Queue에 직접 메세지를 발행. queue_name(=routing_key)

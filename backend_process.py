@@ -8,8 +8,11 @@
 #        - 파이어스토어 스케쥴 확인 부분 추가
 #        - 스마트홈 기기 제어 부분 추가
 #        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
+#        - 각 MQTT 함수는 독립적인 connection을 가집니다.
 #        - MQTT 메시지 publish(전송)시 매 시점마다 채널을 열고/닫습니다.
 #        - MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
+#        - 스케쥴 type이 once인 데이터는 실행후 삭제한다.
+#		 - data.smarthome(clone)을 consume(수신)하여 작업 체크.
 #
 ##############################################################################
 
@@ -33,12 +36,21 @@ slack_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_project_name = 'threeamericano'
 json_file_path = "./realtimedb.json"
+mode_file_path = "./smarthome_mode"
 
 
 # mqtt_server_ip = '211.179.42.130'
 # mqtt_server_port = 5672
 # mqtt_server_id = 'rabbit'
 # mqtt_server_pw = 'MQ321'
+
+
+def receive_test_test(json_data):
+    print("recive test producer and command!")
+
+
+def receive_server_alert(json_data):
+    print("receive server alert msg!")
 
 
 def receive_car_signup(json_data):
@@ -119,8 +131,8 @@ def receive_android_signin(json_data):
     if docs.exists:
         # print(f'Document data: {docs.to_dict()}')
         docs_json_data = docs.to_dict()
-        docs_json_data['Producer'] = "server"
-        docs_json_data['command'] = "return_name"
+#docs_json_data['Producer'] = "server"
+#docs_json_data['command'] = "return_name"
         message = json.dumps(docs_json_data, ensure_ascii=False)
     else:
         alert_error('webos.android.error',
@@ -128,7 +140,8 @@ def receive_android_signin(json_data):
         return False
 
     # MQTT를 통해 '이름값 반환' 메세지 전송
-    be_channel.publish_exchange('webos.topic', 'webos.android.info', message)
+    #be_channel.publish_exchange('webos.topic', 'webos.android.info', message)
+    mqtt_publish_msg('webos.android.info','return_name',docs_json_data)
 
 
 ##############################################################################
@@ -150,8 +163,15 @@ def alert_error(routing_key, message):
         return False
 
 
+def write_mode_state(file_path, now_state):
+    mode_file = open(file_path, "wt")
+    mode_file.write(str(now_state))
+    mode_file.close()
+    time.sleep(5)
+
+
 def read_jsonfile(file_path):
-    with open(file_path, "r", encoding='UTF-8', errors='ignore') as json_file:
+    with open(file_path, "rt", encoding='CP949', errors='ignore') as json_file:
         dict_data = json.load(json_file)
         return dict_data
 
@@ -159,6 +179,11 @@ def read_jsonfile(file_path):
 def json_key_is_there(json_data, key_list):
     for key in key_list:
         temp = json_data[key]
+
+
+def dict_9protocol_for_smarthome(string_data):
+    # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수
+        return mode, aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
 
 
 def dict_realtimedb_for_smarthome(dict_data):
@@ -254,6 +279,11 @@ def read_firestore(collection_name):
         print(u'{} => {}'.format(doc.id, doc.to_dict()))
     '''
     return docs
+
+
+def delete_schedule(document_name):
+    #파이어베이스에 해당 문서 삭제
+    db.collection(u'schedule_mode').document(document_name).delete()
 
 
 def update_schedule(collection_name, doc_title, dict_data):
@@ -357,23 +387,74 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
         return False
 
 
+def on_mqtt_smarthome(channel, method_frame, header_frame, body):
+    try:
+        body_decode = body.decode()
+    except Exception as e:
+        print("no~")
+
+    #데이터 형식 확인 (9글자)
+    if len(body_decode) != 9:
+        return False
+
+    #사용할 데이터 정제
+    status = body_decode
+
+    mode = status[0:1]
+    aircon_enable = status[1:2]
+    aircon_fan = status[2:3]
+    light_enable = status[3:4]
+    light_brightness = status[4:5]
+    light_color = status[5:6]
+    light_mod = status[6:7]
+    window_enable = status[7:8]
+    gas_enable = status[8:9]
+
+    #기대상태 변수에 각 정보들을 모두 저장
+    print(body_decode)
+
+    #아래는 단순 테스트용, 나중에 다른함수나 메인쪽으로 돌리셈;
+    write_mode_state(mode_file_path, mode)
+
+
 def thread_consume_queue():
     # RabbitMQ 연결 및 정보등록
     rb2 = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
     conn = rb2.connect_server()
+    time.sleep(0.01)
 
     # RabbitMQ 채널 생성 및 구독 정보 입력
     consume_channel = rabbitmq_clinet.RabbitmqChannel(conn)  # webos.server 큐 구독용 채널
     consume_channel.open_channel()
+    time.sleep(0.01)
     consume_channel.consume_setting('webos.server', on_mqtt_message)
     consume_channel.consume_starting()
 
 
+def thread_consume_smarthome():
+    # RabbitMQ 연결 및 정보등록
+    rb3 = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+    conn = rb3.connect_server()
+    time.sleep(0.01)
+
+    # RabbitMQ 채널 생성 및 구독 정보 입력
+    consume_channel = rabbitmq_clinet.RabbitmqChannel(conn)  # webos.server 큐 구독용 채널
+    consume_channel.open_channel()
+    time.sleep(0.01)
+    consume_channel.consume_setting('data.smarthome', on_mqtt_smarthome)
+    consume_channel.consume_starting()
+
+
 def mqtt_publish_msg(routing_key, command, message):
-    global mqtt_conn
+    # 커넥션 생성
+    rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+    mqtt_conn = rb.connect_server()
+    time.sleep(0.01)
+
     # 채널개설
     publish_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn)  # 백엔드 처리용 MQTT 채널
     publish_channel.open_channel()
+    time.sleep(0.01)
 
     # 전송할 메세지 작성
     dict_msg = {"Producer": "server", "command": command, "msg": str(message)}
@@ -386,8 +467,13 @@ def mqtt_publish_msg(routing_key, command, message):
         print("========== MQTT 메세지 전송에 실패했습니다.  ========== %r" % e)
         return False
 
-    # 채널폐쇄
+    # 채널 폐쇄
     publish_channel.close_channel()
+    time.sleep(0.01)
+
+    # 커넥션 폐쇄
+    rb.disconnect_server()
+    time.sleep(0.01)
 
 
 ##############################################################################
@@ -397,30 +483,29 @@ def mqtt_publish_msg(routing_key, command, message):
 ##############################################################################
 
 # Slack Bot 개체 생성하기
+print("[init] Slack Bot")
 sl = slack.SlackBot(token=slack_token)
+time.sleep(0.01)
 
 # 파이어베이스 프로젝트에 접속하기
+print("[init] FireStore")
 cred = credentials.Certificate(firebase_key_path)
 firebase_admin.initialize_app(cred, {
     'projectID': firebase_project_name,
 })
 db = firestore.client()
-
-# RabbitMQ 연결 및 정보등록
-rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
-mqtt_conn = rb.connect_server()
-
-# RabbitMQ 채널 생성 및 구독 정보 입력
-be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn)  # 백엔드 처리용 MQTT 채널
-be_channel.open_channel()
+time.sleep(0.01)
 
 # RabbitMQ 구독 진행 (쓰레드 실행)
-t = threading.Thread(target=thread_consume_queue, daemon=True)
+print("[init] RabbitMQ Thread (webos.server)")
+t = threading.Thread(target=thread_consume_queue, daemon=True)  # webos.server
 t.start()
-time.sleep(5)
+time.sleep(4)
 
-mqtt_publish_msg('webos.test.info', 'test', "1234567")
-time.sleep(3)
+print("[init] RabbitMQ Thread (data.smarthome)")
+t2 = threading.Thread(target=thread_consume_smarthome, daemon=True)  # data.smarthome
+t2.start()
+time.sleep(4)
 
 ##############################################################################
 #
@@ -428,23 +513,19 @@ time.sleep(3)
 #
 ##############################################################################
 print(" = backend_process.py 가동을 시작합니다. = ")
-
-mqtt_publish_msg('webos.test.info', 'test', "1234567")
-i = 0
 while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? (참고로 스마트홈 업데이트 갱신주기가 1분)
-    pass
-    '''
-    time.sleep(1)
-    i = i + 1
-    mqtt_publish_msg('webos.test.info', 'test', i)
-    
+    time.sleep(20)
+
+'''
+    write_mode_state(mode_file_path, "fuckyou")
     # RealTime DB 값 불러오기
     try:
         rtdb_dict_data = read_jsonfile(json_file_path)  # 정안되면 이걸 json이 아닌 config로 만들어..?
+        print(rtdb_dict_data)
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : RealTimeDB.JSON을 불러오는 중에 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
-
+		
     # FireStore Schedule 값 불러오기
     try:
         # FireStore의 schedule_mode 컬렉션 불러오기
@@ -495,10 +576,16 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
                     send_control_smarthome(m1, m2, m3, m4, m5, m6, m7, m8)
                     print("[X] send to smarthome queue")
                 # 명령 전달이후 once 인 메세지는 스케쥴에서 삭제진행 ㄱㄱ
+                if mm == 'once':
+                    delete_schedule(doc.id)
 
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : FireStore Schedule 값을 처리하는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
-    '''
     # 또 어떤 로직이 이곳에 오게될것인가~
+    print("hello")
+
+    # 동작대기
+    time.sleep(20)
+'''
 

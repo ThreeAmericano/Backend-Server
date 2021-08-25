@@ -5,10 +5,10 @@
 #   수정일 : 2021-08-25
 #   작성자 : 최현식(chgy2131@naver.com)
 #   변경점 (해야할거)
-#        - JSON Write 함수에 encoding을 utf8에서 cp949로 수정
-#        - RTDB의 스마트홈 모드 상태 업데이트 부분 추가 
+#			- read_mode_file 부분만집가서 합치면 됨
 #
 ##############################################################################
+import codecs
 import time
 import json
 import firebase_admin
@@ -19,12 +19,9 @@ from module.slack import slack
 
 slack_bot_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 json_file_path = "./realtimedb.json"
-mode_file_path = "./smarthome_mode"
-
 firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_realtimedb_url = 'https://threeamericano-default-rtdb.firebaseio.com/'
 openweathermap_service_key = "c7446d3b017961049805343e08347b43"
-
 weather_get_interval = 3600 #sec
 weather_get_latest = time.time() - weather_get_interval
 
@@ -35,10 +32,11 @@ def alert_error(message):
 
 
 def write_jsonfile(file_path, dict_data):
-    with open(json_file_path, 'w', encoding='CP949') as outfile:
+    with codecs.open(json_file_path, 'w', encoding='CP949') as outfile:
         json.dump(dict_data, outfile, indent=4, ensure_ascii=False)
 
 
+mode_file_path = "./smarthome_mode"
 def read_modefile(file_path):
     mode_file = open(file_path, "r")
     mode_data = mode_file.readline()
@@ -46,11 +44,6 @@ def read_modefile(file_path):
     return mode_data
 
 
-##############################################################################
-#
-# 초기화 (init)
-#
-##############################################################################
 # Slack Bot 개체 생성하기
 sl = slack.SlackBot(token=slack_bot_token)
 
@@ -93,10 +86,12 @@ while True:
 
         # SmartHome 동작 모드값 업데이트
         mode_state = read_modefile(mode_file_path)
-        rtdb.child("smarthome").update({"mode": mode_state})
+        rtdb.child("smarthome").update({"mode":mode_state})
 
         # RTDB의 최신값 불러와서 파일로 저장하기
         ddata = rtdb.get()
         write_jsonfile(json_file_path, ddata)
     except Exception as e:
         alert_error("ERROR : FireBase RealTime DB 사용 중 오류가 발생했습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
+
+
