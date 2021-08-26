@@ -41,7 +41,7 @@ WireGuard 설정파일 위치
 
 
 
-## 설치 
+## Server 설치
 
 ### 설치하기
 
@@ -175,12 +175,47 @@ localTest.conf
 ```sh
 $ pivpn -r <인증서이름>
 ```
-  
+
 ---
-  
+
+
+
+
+
+## Client 설치 
+
+OpenVPN Linux 설치 공식 사이트 : https://community.openvpn.net/openvpn/wiki/OpenVPN3Linux?__cf_chl_jschl_tk__=pmd_ijcV0EjAA1JSYKcgpbwqCphFvBJsA3GqIZq8J23RSWo-1629988800-0-gqNtZGzNAeWjcnBszQiR  
+
+
+
+더 좋은거같은 가이드 사이트 : https://www.ovpn.com/en/guides/raspberry-pi-raspbian  
+
+
+
+접속 (레드헷) 예시 : https://blog.naver.com/ncloud24/221443379824  
+
+다른예시 : http://no1linux.org/hottips/29061  
+
+우분투 예시 : https://minddong.tistory.com/33  💥💥💥💥💥💥💥💥
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # ❗ 이하 WireGuard 관련내용 (현재는 사용하지 않음) ❗
+
 ## VPN에 외부인터넷 연결 추가하기
 
 ### 설정파일 수정
