@@ -91,7 +91,7 @@ def receive_car_signin(json_data):
         return False
 
     # MQTT를 통해 '이름값 반환' 메세지
-    mqtt_publish('webos.android.info', message)
+    mqtt_publish('webos.car.info', message)
 
 
 def receive_android_signup(json_data):
@@ -176,8 +176,11 @@ def read_jsonfile(file_path):
 
 
 def json_key_is_there(json_data, key_list):
-    for key in key_list:
-        temp = json_data[key]
+    try:
+        for key in key_list:
+            temp = json_data[key]
+    except Exception as e:
+        raise(e)
 
 
 def dict_realtimedb_for_smarthome(dict_data):
@@ -348,6 +351,12 @@ def check_schedule_now(dict_data):
 
 def on_mqtt_message(channel, method_frame, header_frame, body):
     print("[R] ecive MQTT Message")
+
+    #상수(int)형 메세지인지 확인 (안받아요~)
+    if str(type(body)) == 'int':
+        alert_error('data.error.warning',
+                    "WARNING : 상수형 데이터가 들어왔습니다. 이를 무시합니다. *값 : " + str(body))
+
     # 메세지 내용을 JSON 형태로 정제
     try:
         body_decode = body.decode()
