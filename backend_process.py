@@ -2,17 +2,19 @@
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-08-26
+#   수정일 : 2021-09-06
 #   작성자 : 최현식(chgy2131@naver.com)
-#   변경점 (해야할거)
+#   변경점
 #        - 파이어스토어 스케쥴 확인 부분 추가
 #        - 스마트홈 기기 제어 부분 추가
-#        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
 #        - 각 MQTT 함수는 독립적인 connection을 가집니다.
 #        - MQTT 메시지 publish(전송)시 매 시점마다 채널을 열고/닫습니다.
 #        - MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
-#        - 스케쥴 type이 once인 데이터는 실행후 삭제한다.
+#   해야할거
+#        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
+#        - 스케쥴 type이 once인 데이터는 실행후 삭제한다. (테스트 필요)
 #		 - data.smarthome(clone)을 consume(수신)하여 작업 체크.
+#        - 얼굴인식 모듈 import 및 테스트 진행
 #
 ##############################################################################
 
@@ -31,6 +33,7 @@ from firebase_admin import credentials
 from firebase_admin import firestore
 from module.rabbitmq import rabbitmq_clinet
 from module.slack import slack
+#from module.facer import realtime_facenet_git as rfg
 
 debug_msg = True
 
@@ -39,6 +42,9 @@ firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-
 firebase_project_name = 'threeamericano'
 json_file_path = "./realtimedb.json"
 mode_file_path = "./smarthome_mode"
+stream_url = "http://10.8.0.2:8090/stream/video.mjpeg"
+stream_detecttime = 15
+stream_limittime = 60
 
 
 def receive_test_test(json_data):
@@ -47,6 +53,57 @@ def receive_test_test(json_data):
 
 def receive_server_alert(json_data):
     print("receive server alert msg!")
+
+#
+# Producer : car
+#
+def receive_car_start_facer(json_data):
+    # 얼굴인식 시작시 카메라장치에 얼굴인식 시작신호 메세지 발행
+    docs_json_data = {}
+    try:
+        docs_json_data['command'] = "facer_sign"
+        docs_json_data['sign'] = "start"
+        message = json.dumps(docs_json_data, ensure_ascii=False)
+        mqtt_publish('webos.camera.info', message)
+    except Exception as e:
+        alert_error('webos.camera.error',
+                    "ERROR : 얼굴인식 시작신호 메세지를 작성/발행 중 오류가 발생했습니다. *오류명: %r" % str(e))
+        return False
+
+    # 서버측에서 얼굴인식 진행 (UV4L, openCV, TensorFlow, FaceNet)
+    try:
+        fr_name = "no logic here"
+        #fr_name = rfg.face_recognition(stream_url, stream_detecttime, stream_limittime)
+    except Exception as e:
+        alert_error('webos.car.error',
+                    "ERROR : 얼굴인식 진행중 문제가 발생하였습니다. *오류명 : %r" % str(e))
+        return False
+
+    # 얼굴인식 종료후 카메라장치에 얼굴인식 종료신호 메세지 발행
+    try:
+        docs_json_data['Producer'] = "server"
+        docs_json_data['command'] = "facer_sign"
+        docs_json_data['sign'] = "end"
+        message = json.dumps(docs_json_data, ensure_ascii=False)
+        mqtt_publish('webos.camera.info', message)
+    except Exception as e:
+        alert_error('webos.camera.error',
+                    "ERROR : 얼굴인식 종료신호 메세지를 작성/발행 중 오류가 발생했습니다. *오류명: %r" % str(e))
+        return False
+
+   
+    # 얼굴인식 결과값을 다시 자동차에게 반환
+    try:
+        docs_json_data['Producer'] = "server"
+        docs_json_data['command'] = "return_facer"
+        docs_json_data['result'] = fr_name  # 해당 값이 Exception / Error / None 인 경우 예외임.
+        message = json.dumps(docs_json_data, ensure_ascii=False)
+    except Exception as e:
+        alert_error('webos.car.error',
+                    "ERROR : 얼굴인식 결과 메세지를 보내는 도중 오류가 발생했습니다. *오류명: %r" % str(e))
+        return False
+
+    mqtt_publish('webos.car.info', message)
 
 
 def receive_car_signup(json_data):
@@ -93,7 +150,9 @@ def receive_car_signin(json_data):
     # MQTT를 통해 '이름값 반환' 메세지
     mqtt_publish('webos.car.info', message)
 
-
+#
+# Producer : android
+#
 def receive_android_signup(json_data):
     # JSON 데이터 유효성 검사 (KEY 확인)
     try:
@@ -156,7 +215,7 @@ def alert_error(routing_key, message):
     except Exception as e:
         print("========== SLACK 메세지 전송에 실패했습니다. ========== %r" % e)
     try:
-        mqtt_publish('data.error.info', message)
+        mqtt_publish(routing_key, message)
     except Exception as e:
         print("========== MQTT로 에러메세지 전송에 실패했습니다.  ========== %r" % e)
         return False
@@ -362,6 +421,7 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
         body_decode = body.decode()
         json_data = json.loads(body_decode)
         # iterator = iter(json_data)
+        print_debug("AMQP MSG : %r" % str(body_decode))
     except Exception as e:
         alert_error('data.error.warning',
                     "WARNING : JSON 형식이 아닌 데이터가 들어왔습니다. 이를 무시합니다. *오류내용 : " + str(e))
