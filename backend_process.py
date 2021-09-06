@@ -4,6 +4,7 @@
 #       [ BackEnd Processing Program ]
 #   수정일 : 2021-09-06
 #   작성자 : 최현식(chgy2131@naver.com)
+#
 #   변경점
 #        - 파이어스토어 스케쥴 확인 부분 추가
 #        - 스마트홈 기기 제어 부분 추가
@@ -13,8 +14,8 @@
 #   해야할거
 #        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
 #        - 스케쥴 type이 once인 데이터는 실행후 삭제한다. (테스트 필요)
-#		 - data.smarthome(clone)을 consume(수신)하여 작업 체크.
-#        - 얼굴인식 모듈 import 및 테스트 진행
+#        - data.smarthome(clone)을 consume(수신)하여 작업 체크
+#        - 얼굴인식을 독립적인 프로세스로 진행함.
 #
 ##############################################################################
 
@@ -29,11 +30,11 @@ import threading
 import json
 import firebase_admin
 import re
+import os
 from firebase_admin import credentials
 from firebase_admin import firestore
 from module.rabbitmq import rabbitmq_clinet
 from module.slack import slack
-#from module.facer import realtime_facenet_git as rfg
 
 debug_msg = True
 
@@ -45,6 +46,8 @@ mode_file_path = "./smarthome_mode"
 stream_url = "http://10.8.0.2:8090/stream/video.mjpeg"
 stream_detecttime = 15
 stream_limittime = 60
+face_recognition_path = "/home/pi/Face-Recognition/realtime_facenet_git.py"
+face_recognition_result = "/home/pi/Face-Recognition/face.result"
 
 
 def receive_test_test(json_data):
@@ -61,6 +64,7 @@ def receive_car_start_facer(json_data):
     # 얼굴인식 시작시 카메라장치에 얼굴인식 시작신호 메세지 발행
     docs_json_data = {}
     try:
+        docs_json_data['Producer'] = "server"
         docs_json_data['command'] = "facer_sign"
         docs_json_data['sign'] = "start"
         message = json.dumps(docs_json_data, ensure_ascii=False)
@@ -72,14 +76,15 @@ def receive_car_start_facer(json_data):
 
     # 서버측에서 얼굴인식 진행 (UV4L, openCV, TensorFlow, FaceNet)
     try:
-        fr_name = "no logic here"
-        #fr_name = rfg.face_recognition(stream_url, stream_detecttime, stream_limittime)
+        os.system("sudo -u pi python3.7 " + face_recognition_path)
+        fr_name = read_faceresultfile(face_recognition_result)
     except Exception as e:
         alert_error('webos.car.error',
                     "ERROR : 얼굴인식 진행중 문제가 발생하였습니다. *오류명 : %r" % str(e))
         return False
 
     # 얼굴인식 종료후 카메라장치에 얼굴인식 종료신호 메세지 발행
+    docs_json_data = {}
     try:
         docs_json_data['Producer'] = "server"
         docs_json_data['command'] = "facer_sign"
@@ -90,9 +95,9 @@ def receive_car_start_facer(json_data):
         alert_error('webos.camera.error',
                     "ERROR : 얼굴인식 종료신호 메세지를 작성/발행 중 오류가 발생했습니다. *오류명: %r" % str(e))
         return False
-
    
     # 얼굴인식 결과값을 다시 자동차에게 반환
+    docs_json_data = {}
     try:
         docs_json_data['Producer'] = "server"
         docs_json_data['command'] = "return_facer"
@@ -208,6 +213,7 @@ def print_debug(message):
     if debug_msg:
         print(message)
 
+
 def alert_error(routing_key, message):
     print(message)
     try:
@@ -232,6 +238,25 @@ def read_jsonfile(file_path):
     with open(file_path, "rt", encoding='CP949', errors='ignore') as json_file:
         dict_data = json.load(json_file)
         return dict_data
+
+
+def read_faceresultfile(file_path):
+    before_time = time.time()
+    while True:
+        now_time = time.time()
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+            f_name = lines[0].strip()
+            f_time = float(lines[1].strip())
+
+            return f_name
+            '''
+            time_interval = int(now_time - f_time)
+            if time_interval < 120:  # 2분 이내에 얼굴인식 된 결과일 경우
+                return f_name
+            elif int(now_time - before_time) > 120:  # 얼굴인식 요청이후 2분이 경과한 경우
+                return "error"
+            '''
 
 
 def json_key_is_there(json_data, key_list):
@@ -411,7 +436,7 @@ def check_schedule_now(dict_data):
 def on_mqtt_message(channel, method_frame, header_frame, body):
     print("[R] ecive MQTT Message")
 
-    #상수(int)형 메세지인지 확인 (안받아요~)
+    # 상수(int)형 메세지인지 확인 (안받아요~)
     if str(type(body)) == 'int':
         alert_error('data.error.warning',
                     "WARNING : 상수형 데이터가 들어왔습니다. 이를 무시합니다. *값 : " + str(body))
@@ -458,11 +483,11 @@ def on_mqtt_smarthome(channel, method_frame, header_frame, body):
     except Exception as e:
         print("no~")
 
-    #데이터 형식 확인 (9글자)
+    # 데이터 형식 확인 (9글자)
     if len(body_decode) != 9:
         return False
 
-    #사용할 데이터 정제
+    # 사용할 데이터 정제
     status = body_decode
 
     mode = status[0:1]
@@ -475,10 +500,10 @@ def on_mqtt_smarthome(channel, method_frame, header_frame, body):
     window_enable = status[7:8]
     gas_enable = status[8:9]
 
-    #기대상태 변수에 각 정보들을 모두 저장
+    # 기대상태 변수에 각 정보들을 모두 저장
     print(body_decode)
 
-    #아래는 단순 테스트용, 나중에 다른함수나 메인쪽으로 돌리셈;
+    # 아래는 단순 테스트용, 나중에 다른함수나 메인쪽으로 돌리셈;
     write_mode_state(mode_file_path, mode)
 
 
@@ -578,11 +603,11 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
     print_debug("[A] Load RealTime DB JSON")
     try:
         rtdb_dict_data = read_jsonfile(json_file_path)  # 정안되면 이걸 json이 아닌 config로 만들어..?
-        #print(rtdb_dict_data)
+        # print(rtdb_dict_data)
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : RealTimeDB.JSON을 불러오는 중에 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
-		
+
     # FireStore Schedule 값 불러오기
     print_debug("[A] Load FireStore Schedule")
     try:
@@ -650,4 +675,3 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
 
     # 동작대기
     time.sleep(20)
-
