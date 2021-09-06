@@ -11,11 +11,11 @@
 #        - 각 MQTT 함수는 독립적인 connection을 가집니다.
 #        - MQTT 메시지 publish(전송)시 매 시점마다 채널을 열고/닫습니다.
 #        - MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
+#        - 얼굴인식을 독립적인 프로세스로 진행함.
 #   해야할거
 #        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
 #        - 스케쥴 type이 once인 데이터는 실행후 삭제한다. (테스트 필요)
 #        - data.smarthome(clone)을 consume(수신)하여 작업 체크
-#        - 얼굴인식을 독립적인 프로세스로 진행함.
 #
 ##############################################################################
 
@@ -28,9 +28,9 @@
 import time
 import threading
 import json
-import firebase_admin
 import re
 import os
+import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 from module.rabbitmq import rabbitmq_clinet
