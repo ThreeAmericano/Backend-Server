@@ -2,9 +2,9 @@
 
 본 문서에서는 백엔드 처리서버에 대해 다룹니다. (MQTT Broker 및 얼굴인식 부분은 본 문서에서 다루지 않습니다.)
 
+<br>
 
-
-### 프로젝트 구조
+## 📂 프로젝트 구조
 
 ```c#
 📂Backend-Server
@@ -20,6 +20,42 @@
 	┗ 📃realtimedb.json //RealTimeDB에 현황을 파일로 실시간 업데이트
 ```
 
+  <br>
+
+## ✅ TODO
+
+✅ 총괄 프로그램(programstart_manager)이 쓰레드가 아닌 프로세스를 실행하도록 변경
+
+✅ 파이어스토어 스케쥴 확인 부분 추가
+
+✅ 스마트홈 기기 제어 부분 추가
+
+✅ 각 MQTT 함수는 독립적인 connection을 가집니다.
+
+✅ MQTT 메시지 publish(전송)시 매 시점마다 채널을 열고/닫습니다.
+
+✅ MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
+
+✅ 얼굴인식을 독립적인 프로세스로 진행함.
+
+⬜ 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
+
+⬜ 스케쥴 type이 once인 데이터는 실행후 삭제한다. (테스트 필요)
+
+⬜ data.smarthome(clone)을 consume(수신)하여 작업 체크
+
+  <br>
+
+## 실행
+
+```shell
+sudo python3 programstart_manager.py
+```
+
+<br>
+
+
+
 
 
 ___
@@ -34,8 +70,8 @@ Python3 로 작성되었으며, 의존 모듈은 아래와 같습니다.
 
 ```python
 import os
-import threading
 import time
+import multiprocessing as mp
 
 from module.slack import slack
 ```
@@ -80,6 +116,8 @@ Python3 로 작성되었으며, 의존 모듈은 아래와 같습니다.
 import time
 import threading
 import json
+import re
+import os
 
 import firebase_admin
 from firebase_admin import credentials

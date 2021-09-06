@@ -1,13 +1,21 @@
-#-*-coding:utf-8-*-
+# -*-coding:utf-8-*-
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-08-19
+#   수정일 : 2021-09-06
 #   작성자 : 최현식(chgy2131@naver.com)
-#   변경점 (해야할거)
+#
+#   변경점
 #        - 파이어스토어 스케쥴 확인 부분 추가
 #        - 스마트홈 기기 제어 부분 추가
+#        - 각 MQTT 함수는 독립적인 connection을 가집니다.
+#        - MQTT 메시지 publish(전송)시 매 시점마다 채널을 열고/닫습니다.
+#        - MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
+#        - 얼굴인식을 독립적인 프로세스로 진행함.
+#   해야할거
 #        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
+#        - 스케쥴 type이 once인 데이터는 실행후 삭제한다. (테스트 필요)
+#        - data.smarthome(clone)을 consume(수신)하여 작업 체크
 #
 ##############################################################################
 
@@ -20,21 +28,87 @@
 import time
 import threading
 import json
-import firebase_admin
 import re
+import os
+import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 from module.rabbitmq import rabbitmq_clinet
 from module.slack import slack
 
+debug_msg = True
+
 slack_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_project_name = 'threeamericano'
 json_file_path = "./realtimedb.json"
-#mqtt_server_ip = '211.179.42.130'
-#mqtt_server_port = 5672
-#mqtt_server_id = 'rabbit'
-#mqtt_server_pw = 'MQ321'
+mode_file_path = "./smarthome_mode"
+stream_url = "http://10.8.0.2:8090/stream/video.mjpeg"
+stream_detecttime = 15
+stream_limittime = 60
+face_recognition_path = "/home/pi/Face-Recognition/realtime_facenet_git.py"
+face_recognition_result = "/home/pi/Face-Recognition/face.result"
+
+
+def receive_test_test(json_data):
+    print("recive test producer and command!")
+
+
+def receive_server_alert(json_data):
+    print("receive server alert msg!")
+
+#
+# Producer : car
+#
+def receive_car_start_facer(json_data):
+    # 얼굴인식 시작시 카메라장치에 얼굴인식 시작신호 메세지 발행
+    docs_json_data = {}
+    try:
+        docs_json_data['Producer'] = "server"
+        docs_json_data['command'] = "facer_sign"
+        docs_json_data['sign'] = "start"
+        message = json.dumps(docs_json_data, ensure_ascii=False)
+        mqtt_publish('webos.camera.info', message)
+    except Exception as e:
+        alert_error('webos.camera.error',
+                    "ERROR : 얼굴인식 시작신호 메세지를 작성/발행 중 오류가 발생했습니다. *오류명: %r" % str(e))
+        return False
+
+    # 서버측에서 얼굴인식 진행 (UV4L, openCV, TensorFlow, FaceNet)
+    try:
+        os.system("sudo -u pi python3.7 " + face_recognition_path)
+        fr_name = read_faceresultfile(face_recognition_result)
+    except Exception as e:
+        alert_error('webos.car.error',
+                    "ERROR : 얼굴인식 진행중 문제가 발생하였습니다. *오류명 : %r" % str(e))
+        return False
+
+    # 얼굴인식 종료후 카메라장치에 얼굴인식 종료신호 메세지 발행
+    docs_json_data = {}
+    try:
+        docs_json_data['Producer'] = "server"
+        docs_json_data['command'] = "facer_sign"
+        docs_json_data['sign'] = "end"
+        message = json.dumps(docs_json_data, ensure_ascii=False)
+        mqtt_publish('webos.camera.info', message)
+    except Exception as e:
+        alert_error('webos.camera.error',
+                    "ERROR : 얼굴인식 종료신호 메세지를 작성/발행 중 오류가 발생했습니다. *오류명: %r" % str(e))
+        return False
+   
+    # 얼굴인식 결과값을 다시 자동차에게 반환
+    docs_json_data = {}
+    try:
+        docs_json_data['Producer'] = "server"
+        docs_json_data['command'] = "return_facer"
+        docs_json_data['result'] = fr_name  # 해당 값이 Exception / Error / None 인 경우 예외임.
+        message = json.dumps(docs_json_data, ensure_ascii=False)
+    except Exception as e:
+        alert_error('webos.car.error',
+                    "ERROR : 얼굴인식 결과 메세지를 보내는 도중 오류가 발생했습니다. *오류명: %r" % str(e))
+        return False
+
+    mqtt_publish('webos.car.info', message)
 
 
 def receive_car_signup(json_data):
@@ -78,14 +152,16 @@ def receive_car_signin(json_data):
                     "ERROR : UID에 해당하는 유저 정보가 없습니다. 확인이 필요합니다.")
         return False
 
-    # MQTT를 통해 '이름값 반환' 메세지 전송
-    be_channel.publish_exchange('webos.topic', 'webos.car.info', message)
+    # MQTT를 통해 '이름값 반환' 메세지
+    mqtt_publish('webos.car.info', message)
 
-
+#
+# Producer : android
+#
 def receive_android_signup(json_data):
     # JSON 데이터 유효성 검사 (KEY 확인)
     try:
-        json_key_is_there(json_data,['UID', 'name'])
+        json_key_is_there(json_data, ['UID', 'name'])
     except Exception as e:
         alert_error('webos.android.error',
                     "ERROR : 도착한 JSON 데이터의 형식이 기존 규약과 상이합니다. 확인이 필요합니다. *오류내용 : " + "KeyError." + str(e))
@@ -124,7 +200,7 @@ def receive_android_signin(json_data):
         return False
 
     # MQTT를 통해 '이름값 반환' 메세지 전송
-    be_channel.publish_exchange('webos.topic', 'webos.android.info', message)
+    mqtt_publish('webos.android.info', message)
 
 
 ##############################################################################
@@ -132,71 +208,81 @@ def receive_android_signin(json_data):
 # 선언 및 정의 (일반함수)
 #
 ##############################################################################
+def print_debug(message):
+    global debug_msg
+    if debug_msg:
+        print(message)
+
 
 def alert_error(routing_key, message):
     print(message)
-    dict_msg = {"Producer": "server", "command": "alert", "msg": str(message)}
-    json_dump = json.dumps(dict_msg, ensure_ascii=False)
     try:
         sl.slack_post_message('#server', message)
     except Exception as e:
         print("========== SLACK 메세지 전송에 실패했습니다. ========== %r" % e)
     try:
-        be_channel.publish_exchange('webos.topic', routing_key, json_dump)
+        mqtt_publish(routing_key, message)
     except Exception as e:
         print("========== MQTT로 에러메세지 전송에 실패했습니다.  ========== %r" % e)
         return False
 
 
+def write_mode_state(file_path, now_state):
+    mode_file = open(file_path, "wt")
+    mode_file.write(str(now_state))
+    mode_file.close()
+    time.sleep(5)
+
+
 def read_jsonfile(file_path):
-    with open(file_path, "r", encoding='UTF-8', errors='ignore') as json_file:
+    with open(file_path, "rt", encoding='CP949', errors='ignore') as json_file:
         dict_data = json.load(json_file)
         return dict_data
 
 
+def read_faceresultfile(file_path):
+    before_time = time.time()
+    while True:
+        now_time = time.time()
+        with open(file_path, 'r') as f:
+            lines = f.readlines()
+            f_name = lines[0].strip()
+            f_time = float(lines[1].strip())
+
+            return f_name
+            '''
+            time_interval = int(now_time - f_time)
+            if time_interval < 120:  # 2분 이내에 얼굴인식 된 결과일 경우
+                return f_name
+            elif int(now_time - before_time) > 120:  # 얼굴인식 요청이후 2분이 경과한 경우
+                return "error"
+            '''
+
+
 def json_key_is_there(json_data, key_list):
-    for key in key_list:
-        temp = json_data[key]
+    try:
+        for key in key_list:
+            temp = json_data[key]
+    except Exception as e:
+        raise(e)
 
 
 def dict_realtimedb_for_smarthome(dict_data):
     # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수
     smarthome = dict_data['smarthome']
-    aircon = smarthome['aircon']
-    gas = smarthome['gas']
-    light = smarthome['light']
-    window = smarthome['window']
+    mode = smarthome['mode']
+    status = smarthome['status']
 
-    if aircon['enabled']:
-        aircon_enable = '1'
-    else:
-        aircon_enable = '0'
-    aircon_fan = int(aircon['fan_level'] / 10)
+    aircon_enable = status[0:1]
+    aircon_fan = status[1:2]
+    light_enable = status[2:3]
+    light_brightness = status[3:4]
+    light_color = status[4:5]
+    light_mod = status[5:6]
+    window_enable = status[6:7]
+    gas_enable = status[7:8]
 
-    if light['enabled']:
-        light_enable = '1'
-    else:
-        light_enable = '0'
-    light_brightness = int(light['brightness'] / 10)
-    if light['color'] == "white": # 다양한색깔 구문 ^^!
-        light_color = '0'
-    else:
-        light_color = '1'
-    if light['mod'] == "Blink":
-        light_mod = '0'
-    else:
-        light_mod = '1'
-
-    if window['enabled']:
-        window_enable = '1'
-    else:
-        window_enable = '0'
-    if gas['enabled']:
-        gas_enable = '1'
-    else:
-        gas_enable = '0'
-
-    return aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
+    return mode, aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
 
 
 def dict_for_smarthome(dict_data):
@@ -204,73 +290,56 @@ def dict_for_smarthome(dict_data):
     if str(type(dict_data)) != "<class 'dict'>":
         raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
 
-    # 이건좀 아닌듯 ㅋㅋ 고쳐야겟다 .. 다시 원복 ㄱㄱ
-    try:
-        aircon = dict_data['Device_aircon']
-    except Exception as e:
-        pass
-    try:
-        light = dict_data['Device_light']
-    except Exception as e:
-        pass
-    try:
-        window = dict_data['Device_window']
-    except Exception as e:
-        pass
-    try:
-        gas = dict_data['Device_gas']
-    except Exception as e:
-        pass
-    ######################
+    do_type = dict_data['type']
 
     try:
-        if aircon[0]:
+        if dict_data['Device_aircon'][0]:
             aircon_enable = '1'
         else:
             aircon_enable = '0'
     except Exception as e:
         aircon_enable = '2'
     try:
-        aircon_fan = str(aircon[1])
+        aircon_fan = str(dict_data['Device_aircon'][1])
     except Exception as e:
         aircon_fan = '0'
 
     try:
-        if light[0]:
+        if dict_data['Device_light'][0]:
             light_enable = '1'
         else:
             light_enable = '0'
     except Exception as e:
         light_enable = '2'
     try:
-        light_brightness = str(light[1])
+        light_brightness = str(dict_data['Device_light'][1])
     except Exception as e:
         light_brightness = '9'
     try:
-        light_color = str(light[2])
+        light_color = str(dict_data['Device_light'][2])
     except Exception as e:
         light_color = '0'
     try:
-        light_mod = str(light[3])
+        light_mod = str(dict_data['Device_light'][3])
     except Exception as e:
         light_mod = '0'
 
     try:
-        if window[0]:
+        if dict_data['Device_window'][0]:
             window_enable = '1'
         else:
             window_enable = '0'
     except Exception as e:
         window_enable = '2'
     try:
-        if gas[0]:
+        if dict_data['Device_gas'][0]:
             gas_enable = '1'
         else:
             gas_enable = '0'
     except Exception as e:
         gas_enable = '2'
 
-    return aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
+    return do_type, aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
 
 
 def send_control_smarthome(aircon_enable, aircon_fan,
@@ -279,7 +348,7 @@ def send_control_smarthome(aircon_enable, aircon_fan,
     message = aircon_enable + aircon_fan + light_enable + light_brightness + light_color + light_mod + window_enable + gas_enable
 
     # MQTT를 통해 '스마트홈 가전제어' 메세지 전송
-    be_channel.publish_exchange('webos.topic', 'webos.smarthome.info', message)
+    mqtt_publish('webos.smarthome.info', message)
 
 
 def read_firestore(collection_name):
@@ -291,6 +360,11 @@ def read_firestore(collection_name):
         print(u'{} => {}'.format(doc.id, doc.to_dict()))
     '''
     return docs
+
+
+def delete_schedule(document_name):
+    #파이어베이스에 해당 문서 삭제
+    db.collection(u'schedule_mode').document(document_name).delete()
 
 
 def update_schedule(collection_name, doc_title, dict_data):
@@ -307,26 +381,23 @@ def check_schedule_right(dict_data):
         raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
 
     temp = (dict_data['UID'])
-    temp = (dict_data['Enabled'])
-    temp = (dict_data['One_time'])
+    temp = (dict_data['type'])
 
-    if dict_data['One_time'] == True:
+    if dict_data['type'] == 'once':
         temp = (dict_data['Active_date'])
-    elif dict_data['One_time'] == False:
+    elif dict_data['type'] == 'repet':
+        temp = (dict_data['Enabled'])
         temp = (dict_data['Daysofweek'])
         temp = (dict_data['Start_time'])
-        temp = (dict_data['End_time'])
+    elif dict_data['type'] == 'mode':
+        pass
     else:
-        raise Exception("해당 문서에 'One_time'값이 bool형식이 아닙니다.")
+        raise Exception("해당 문서에 'type'값에 형식이 잘못되었습니다. 실행함수:check_schedule_right. ")
 
 
 def check_schedule_now(dict_data):
-    if not dict_data['Enabled']:
-        return False
-
     check_state = False
-
-    if dict_data['One_time']:
+    if dict_data['type'] == 'once':
         # 일회성 로직인 경우
         active_time = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:16]))
         now_time = int(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
@@ -334,45 +405,48 @@ def check_schedule_now(dict_data):
         # 확인 조건문
         if (active_time - 1) <= now_time <= (active_time + 1):
             check_state = True
-    else:
+    elif dict_data['type'] == 'repet':
+        # 실행해야되는건지 일단 확인
+        time.sleep(0.0001)
+        if not dict_data['Enabled']:
+            return False
+
         # 주기적 로직인 경우
-        now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))] # 동작 요일 확인
+        now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))]  # 동작 요일 확인
         if not now_dayoftheweek:
             return False
 
-        # 일단 STR을 INT형으로 바꾼다음에 연산해야함.
+        # 일단 STR을 INT형으로 바꾼후 비교문 연산
         now_time = int(time.strftime("%H%M", time.localtime(time.time())))
         start_time = int(dict_data['Start_time'])
-        end_time = int(dict_data['End_time'])
-        check_state = False
 
-        # 확인 조건문
-        if (start_time < now_time) and (now_time < end_time):
-            # 현재시간이 시작시간과 끝시간 사이에 위치한 경우
+        time.sleep(0.0001)
+        if (start_time - 1 <= now_time) and (now_time <= start_time + 1):
             check_state = True
-        elif end_time < start_time:
-            # 동작시간이 자정을 넘어서까지 있을때
-            if start_time < now_time:
-                # 아직 자정을 넘지 않은 경우
-                check_state = True
-            elif now_time < end_time:
-                # 자정을 넘었지만 아직 종료시간이 아닌 경우
-                check_state = True
-            else:
-                check_state = False
         else:
             check_state = False
+    elif dict_data['type'] == 'mode':  #모드는 서버에서 직접 실행되지 않음
+        check_state = False
+    else:
+        raise Exception("해당 문서에 'type'값에 형식이 잘못되었습니다. 실행함수:check_schedule_now. ")
 
     return check_state
 
 
 def on_mqtt_message(channel, method_frame, header_frame, body):
-    print("[ Recive Message from MQTT Queue ]")
+    print("[R] ecive MQTT Message")
+
+    # 상수(int)형 메세지인지 확인 (안받아요~)
+    if str(type(body)) == 'int':
+        alert_error('data.error.warning',
+                    "WARNING : 상수형 데이터가 들어왔습니다. 이를 무시합니다. *값 : " + str(body))
+
     # 메세지 내용을 JSON 형태로 정제
     try:
         body_decode = body.decode()
         json_data = json.loads(body_decode)
-        iterator = iter(json_data)
+        # iterator = iter(json_data)
+        print_debug("AMQP MSG : %r" % str(body_decode))
     except Exception as e:
         alert_error('data.error.warning',
                     "WARNING : JSON 형식이 아닌 데이터가 들어왔습니다. 이를 무시합니다. *오류내용 : " + str(e))
@@ -389,18 +463,101 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
     # 해당 메세지를 처리할 수 있는 함수가 있는지 확인
     function_name = str(json_data['Producer']) + '_' + str(json_data['command'])
     globals_var = str(globals())
-    if globals_var.find('receive_'+function_name) == -1:
-        alert_error('webos.'+json_data['Producer']+'.error',
-                    "WARNING : 처리함수가 없는 데이터가 들어왔습니다. 이를 무시합니다. *로딩함수명 : " + str('receive_'+function_name))
+    if globals_var.find('receive_' + function_name) == -1:
+        alert_error('webos.' + json_data['Producer'] + '.error',
+                    "WARNING : 처리함수가 없는 데이터가 들어왔습니다. 이를 무시합니다. *로딩함수명 : " + str('receive_' + function_name))
         return False
 
     # 해당 메세지 처리 함수로 연결
     try:
-        globals()[str('receive_'+function_name)](json_data)
+        globals()[str('receive_' + function_name)](json_data)
     except Exception as e:
-        alert_error('webos.'+json_data['Producer']+'.error',
+        alert_error('webos.' + json_data['Producer'] + '.error',
                     "ERROR : 처리함수 실행중 에러가 발생했습니다. 확인이 필요합니다. *오류명 : " + str(e))
         return False
+
+
+def on_mqtt_smarthome(channel, method_frame, header_frame, body):
+    try:
+        body_decode = body.decode()
+    except Exception as e:
+        print("no~")
+
+    # 데이터 형식 확인 (9글자)
+    if len(body_decode) != 9:
+        return False
+
+    # 사용할 데이터 정제
+    status = body_decode
+
+    mode = status[0:1]
+    aircon_enable = status[1:2]
+    aircon_fan = status[2:3]
+    light_enable = status[3:4]
+    light_brightness = status[4:5]
+    light_color = status[5:6]
+    light_mod = status[6:7]
+    window_enable = status[7:8]
+    gas_enable = status[8:9]
+
+    # 기대상태 변수에 각 정보들을 모두 저장
+    print(body_decode)
+
+    # 아래는 단순 테스트용, 나중에 다른함수나 메인쪽으로 돌리셈;
+    write_mode_state(mode_file_path, mode)
+
+
+def thread_consume_queue():
+    # RabbitMQ 연결 및 정보등록
+    rb2 = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+    conn = rb2.connect_server()
+    time.sleep(0.01)
+
+    # RabbitMQ 채널 생성 및 구독 정보 입력
+    consume_channel = rabbitmq_clinet.RabbitmqChannel(conn)  # webos.server 큐 구독용 채널
+    consume_channel.open_channel()
+    time.sleep(0.01)
+    consume_channel.consume_setting('webos.server', on_mqtt_message)
+    consume_channel.consume_starting()
+
+
+def thread_consume_smarthome():
+    # RabbitMQ 연결 및 정보등록
+    rb3 = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+    conn = rb3.connect_server()
+    time.sleep(0.01)
+
+    # RabbitMQ 채널 생성 및 구독 정보 입력
+    consume_channel = rabbitmq_clinet.RabbitmqChannel(conn)  # webos.server 큐 구독용 채널
+    consume_channel.open_channel()
+    time.sleep(0.01)
+    consume_channel.consume_setting('data.smarthome', on_mqtt_smarthome)
+    consume_channel.consume_starting()
+
+
+def mqtt_publish(routing_key, message):
+    # 커넥션 생성
+    rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+    mqtt_conn = rb.connect_server()
+    time.sleep(0.01)
+
+    # 채널개설
+    publish_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn)  # 백엔드 처리용 MQTT 채널
+    publish_channel.open_channel()
+    time.sleep(0.01)
+
+    # 메세지 전달
+    try:
+        publish_channel.publish_exchange('webos.topic', routing_key, str(message))
+    except Exception as e:
+        print("========== MQTT 메세지 전송에 실패했습니다.  ========== %r" % e)
+        return False
+
+    # 채널 및 커넥션 닫기
+    publish_channel.close_channel()
+    time.sleep(0.01)
+    rb.disconnect_server()
+    time.sleep(0.01)
 
 
 ##############################################################################
@@ -410,49 +567,61 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
 ##############################################################################
 
 # Slack Bot 개체 생성하기
+print("[init] Slack Bot")
 sl = slack.SlackBot(token=slack_token)
+time.sleep(0.01)
 
 # 파이어베이스 프로젝트에 접속하기
+print("[init] FireStore")
 cred = credentials.Certificate(firebase_key_path)
 firebase_admin.initialize_app(cred, {
     'projectID': firebase_project_name,
 })
 db = firestore.client()
+time.sleep(0.01)
 
-# RabbitMQ 연결 및 정보등록
-#rb = rabbitmq_clinet.RabbitmqClient(mqtt_server_ip, mqtt_server_port, mqtt_server_id, mqtt_server_pw)
-rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
-mqtt_conn = rb.connect_server()
-
-be_channel = rabbitmq_clinet.RabbitmqChannel(mqtt_conn) # 백엔드 처리용 MQTT 채널
-be_channel.open_channel()
-be_channel.consume_setting('webos.server', on_mqtt_message)
-
-# RabbitMQ 실제 실행구문 (쓰레드 실행)
-t = threading.Thread(target=be_channel.consume_starting, daemon=True)
+# RabbitMQ 구독 진행 (쓰레드 실행)
+print("[init] RabbitMQ Thread (webos.server)")
+t = threading.Thread(target=thread_consume_queue, daemon=True)  # webos.server
 t.start()
+time.sleep(4)
 
+print("[init] RabbitMQ Thread (data.smarthome)")
+t2 = threading.Thread(target=thread_consume_smarthome, daemon=True)  # data.smarthome
+t2.start()
+time.sleep(4)
 
+# write_mode_state(mode_file_path, "fuckyou")
 ##############################################################################
 #
 # 반복 실행
 #
 ##############################################################################
-while True: # 메인루프에 전체적으로 딜레이시간을 주는걸로? (참고로 스마트홈 업데이트 갱신주기가 1분)
+print("[init] backend_process.py 가동을 시작합니다.")
+while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? (참고로 스마트홈 업데이트 갱신주기가 1분)
     # RealTime DB 값 불러오기
+    print_debug("[A] Load RealTime DB JSON")
     try:
-        rtdb_dict_data = read_jsonfile(json_file_path)
+        rtdb_dict_data = read_jsonfile(json_file_path)  # 정안되면 이걸 json이 아닌 config로 만들어..?
+        # print(rtdb_dict_data)
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : RealTimeDB.JSON을 불러오는 중에 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
     # FireStore Schedule 값 불러오기
+    print_debug("[A] Load FireStore Schedule")
     try:
+        # FireStore의 schedule_mode 컬렉션 불러오기
+        print_debug(" ┗[1] Load 'Schedule_mode' collection")
         schedule_query = read_firestore('schedule_mode')
+
+        # 각 문서(doc)별로 내용 분석
+        print_debug(" ┗[2] schedule to dict")
         for doc in schedule_query:
             schedule_dict = doc.to_dict()
             try:
-                print("[%r]" % str(doc.id))
+                # DB에 저장되어있던 스케쥴 형식이 정상적인 형식인지 확인
+                print_debug("   ┗[1] check schedule right")
                 check_schedule_right(schedule_dict)
             except Exception as e:
                 alert_error("data.error.error",
@@ -461,21 +630,21 @@ while True: # 메인루프에 전체적으로 딜레이시간을 주는걸로? (
                 continue
 
             # 현재 실행해야 하는 스케쥴인지 확인
-            print(check_schedule_now(schedule_dict))
+            print_debug("   ┗[2] check run this time")
             if check_schedule_now(schedule_dict):
                 # 실시간DB의 값을 '스마트홈 프로토콜 형식'으로 변환
-                o1, o2, o3, o4, o5, o6, o7, o8 = dict_realtimedb_for_smarthome(rtdb_dict_data)
+                om, o1, o2, o3, o4, o5, o6, o7, o8 = dict_realtimedb_for_smarthome(rtdb_dict_data)
 
                 # '스마트홈 프로토콜 형식'으로 명령 생성
-                m1, m2, m3, m4, m5, m6, m7, m8 = dict_for_smarthome(schedule_dict)
+                mm, m1, m2, m3, m4, m5, m6, m7, m8 = dict_for_smarthome(schedule_dict)
 
                 # 스케쥴값과 실시간DB값을 비교하여, 실행해야 하는 명령만 명령으로 확정
-                #print("{0} {1} {2} {3} {4} {5} {6} {7}".format(o1,o2,o3,o4,o5,o6,o7,o8))
-                #print("{0} {1} {2} {3} {4} {5} {6} {7}".format(m1,m2,m3,m4,m5,m6,m7,m8))
+                print_debug("{0} {1} {2} {3} {4} {5} {6} {7}".format(o1,o2,o3,o4,o5,o6,o7,o8))
+                print_debug("{0} {1} {2} {3} {4} {5} {6} {7}".format(m1,m2,m3,m4,m5,m6,m7,m8))
                 flag_sendmsg = False
-                if m1 != o1 and m1 != '2': # on/off값이 기존과 다르고, 현행유지 상태가 아니라면 명령을 새로 내린다.
+                if m1 != o1 and m1 != '2':  # on/off값이 기존과 다르고, 현행유지 상태가 아니라면 명령을 새로 내린다.
                     flag_sendmsg = True
-                elif m1 == '1' and m2 != o2: # 밝기제어값이 다른경우
+                elif m1 == '1' and m2 != o2:  # 밝기제어값이 다른경우
                     flag_sendmsg = True
 
                 if m3 != o3 and m3 != '2':
@@ -489,13 +658,20 @@ while True: # 메인루프에 전체적으로 딜레이시간을 주는걸로? (
                     flag_sendmsg = True
 
                 # 새로 진행해야할 명령이 있따면, 해당명령을 '스마트홈 큐'로 전달
-                #print("flag : %r" % str(flag_sendmsg))
+                # print("flag : %r" % str(flag_sendmsg))
                 if flag_sendmsg:
+                    print("   ┗[3] send control msg to smarthome")
                     send_control_smarthome(m1, m2, m3, m4, m5, m6, m7, m8)
+                    print("[X] send to smarthome queue")
+                # 명령 전달이후 once 인 메세지는 스케쥴에서 삭제진행 ㄱㄱ
+                if mm == 'once':
+                    print("   ┗[4] delete schedule (cuz it is 'type: once')")
+                    delete_schedule(doc.id)
 
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : FireStore Schedule 값을 처리하는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
-
     # 또 어떤 로직이 이곳에 오게될것인가~
 
+    # 동작대기
+    time.sleep(20)

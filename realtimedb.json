@@ -1,37 +1,19 @@
 {
-    "Sensor": {
-        "data": 555
-    },
-    "car": "hello94829",
     "sensor": {
         "hometemp": {
-            "humi": 75,
-            "temp": 30
+            "humi": 80,
+            "temp": 24.7
         },
         "openweather": {
-            "air_level": 2,
-            "description": "ÎßëÏùå",
+            "air_level": 4,
+            "description": "∏º¿Ω",
             "icon": "01n",
             "temp": "22.8",
-            "update": "2021-08-18 22:40:51.242650"
+            "update": "2021-08-25 23:38:37.400391"
         }
     },
     "smarthome": {
-        "aircon": {
-            "enabled": "off",
-            "fan_level": 1
-        },
-        "gas": {
-            "enabled": "off"
-        },
-        "light": {
-            "brightness": 80,
-            "color": "white",
-            "enabled": "on",
-            "mod": "Blink"
-        },
-        "window": {
-            "enabled": false
-        }
+        "mode": "0",
+        "status": "06151110"
     }
 }
