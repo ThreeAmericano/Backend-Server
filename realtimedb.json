@@ -1,19 +1,19 @@
 {
     "sensor": {
         "hometemp": {
-            "humi": 80,
+            "humi": 71,
+            "rain": 1,
             "temp": 24.7
         },
         "openweather": {
             "air_level": 4,
-            "description": "맑음",
-            "icon": "01n",
-            "temp": "22.8",
-            "update": "2021-08-25 23:38:37.400391"
+            "description": "구름조금",
+            "icon": "03d",
+            "temp": "27.8",
+            "update": "2021-09-10 16:44:39.190800"
         }
     },
     "smarthome": {
-        "mode": "0",
-        "status": "06151110"
+        "status": "312113301"
     }
 }

@@ -2,11 +2,12 @@
 ##############################################################################
 #
 #       [ Server Start Management Program ]
-#   작성일 : 2021-08-22
+#   작성일 : 2021-09-09
 #   작성자 : 최현식(chgy2131@naver.com)
 #   변경점
 #        - 각 프로그램 분기를 쓰레드가 아닌 멀티프로세싱 방식으로 변경
 #		 - 재시작시 MQTT등 강제로 종료된 강제 연결들을 정정하는 로직을 추가??
+#		 - 키보드 인터럽트 발생시 정상적으로 프로그램을 종료하도록 구문 추가
 #
 ##############################################################################
 import os
@@ -48,12 +49,16 @@ def realtimedb_connect():
 sl = slack.SlackBot(token=slack_bot_token)
 alert_error("INFORM : 서버 매니지먼트 프로그램 및 하위 프로세스가 시작됩니다.")
 
-# 쓰레드 실행
+# 멀티 프로세스 실행
 mp_bp = mp.Process(target=backend_process, daemon=True)
 mp_bp.start()
 mp_rc = mp.Process(target=realtimedb_connect, daemon=True)
 mp_rc.start()
 
-# 대기 (추후 여기에 서버 관련 모니터링 추가)
-while True:
-	time.sleep(3600)
+# 대기
+try:
+	while True:
+		time.sleep(3600)
+except KeyboardInterrupt:
+	print("키보드 인터럽트가 발생하여 백엔드 프로그램을 종료합니다.")
+	quit()
