@@ -1,6 +1,8 @@
 # 파이어베이스 Python SDK
 
+파이어베이스 ADMIN SDK를 이용하여 Python언어로 제어하는 것을 다룹니다.
 
+<br>
 
 ## 사전작업
 
@@ -10,7 +12,7 @@
 $ pip3 install firebase-admin
 ```
 
-
+<br>
 
 ### Firebase로 부터 python용 KEY값 부여받기
 
@@ -18,13 +20,13 @@ Firebase > Project > SidePannel메뉴 중 톱니바퀴 모양 클릭 > 프로젝
 
 관련 KEY 파일이 .json 형태의 파일로 다운받아짐.
 
-
+<br>
 
 ## Firebase 관련 python 예제
 
 공식자료 : https://firebase.google.com/docs/firestore/quickstart?hl=ko
 
-
+<br>
 
 ###  필수모듈
 
@@ -36,7 +38,7 @@ from firebase_admin import credentials
 from firebase_admin import firestore
 ```
 
-
+<br>
 
 ### Firebase 연결 생성하기
 
@@ -52,7 +54,7 @@ firebase_admin.initialize_app(cred, {
 db = firestore.client()
 ```
 
-
+<br>
 
 ### 데이터 쓰기
 
@@ -69,7 +71,7 @@ doc_ref.set({
 })
 ```
 
-
+<br>
 
 ### 데이터 읽기
 
@@ -83,6 +85,36 @@ docs = users_ref.stream()
 
 for doc in docs:
     print(u'{} => {}'.format(doc.id, doc.to_dict()))
+```
+
+<br>
+
+---
+
+### 리스너 사용하기
+
+**[FireStore - Python]**
+
+```python
+callback_done = threading.Event()
+def on_snapshot(doc_snapshot, changes, read_time):
+     for doc in doc_snapshot:
+         print('Received document snapshot: {0}' . format(doc.id))
+     callback_done.set()
+
+col_query = db.collection(u'city')
+doc_watch = col_query.on_snapshot(on_snapshot)
+```
+
+**[RealTimeDB - Python]**
+
+```python
+def yoyoyo(args):
+    print(args)
+    print("hi")
+
+rtdb = db.reference()
+rtdb.listen(yoyoyo)
 ```
 
 

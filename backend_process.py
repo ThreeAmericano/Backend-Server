@@ -2,7 +2,7 @@
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-09-06
+#   수정일 : 2021-09-16
 #   작성자 : 최현식(chgy2131@naver.com)
 #
 #   변경점
@@ -11,26 +11,28 @@
 #        - 각 MQTT 함수는 독립적인 connection을 가집니다.
 #        - MQTT 메시지 publish(전송)시 매 시점마다 채널을 열고/닫습니다.
 #        - MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
+#        - 파이어스토어 스케쥴 부분 구성 변경에 따른 관련 함수 수정
 #        - 얼굴인식을 독립적인 프로세스로 진행함.
+#        - 파이어스토어의 alarm, modes, schedule 부분을 리스너를 통해 동작하도록 수정
+#        - 스케쥴을 명령을 이제 한번만 보냅니다. (지속체크 x)
 #   해야할거
-#        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
-#        - 스케쥴 type이 once인 데이터는 실행후 삭제한다. (테스트 필요)
-#        - data.smarthome(clone)을 consume(수신)하여 작업 체크
+#        - 스케쥴 repet이 false인(단발성 스케쥴) 데이터는 실행 후 삭제한다. (테스트 필요)
+#        - 각 센서 및 API 정보를 수집하여 사용자에게 행동 추천
 #
 ##############################################################################
 
 
 ##############################################################################
 #
-# 선언 및 정의 (모듈 로드 및 MQTT명령 처리)
+# 선언 및 정의 (module 로드 및 전역번수 선언)
 #
 ##############################################################################
 import time
 import threading
 import json
+import firebase_admin
 import re
 import os
-import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 from module.rabbitmq import rabbitmq_clinet
@@ -49,7 +51,15 @@ stream_limittime = 60
 face_recognition_path = "/home/pi/Face-Recognition/realtime_facenet_git.py"
 face_recognition_result = "/home/pi/Face-Recognition/face.result"
 
+firestore_modes_db = []
+firestore_schedule_db = []
+latest_schedule_check = int(time.strftime("%H%M", time.localtime(time.time()))) - 1
 
+##############################################################################
+#
+# AMQP 처리 함수 지정 (서버 및 기타)
+#
+##############################################################################
 def receive_test_test(json_data):
     print("recive test producer and command!")
 
@@ -57,9 +67,12 @@ def receive_test_test(json_data):
 def receive_server_alert(json_data):
     print("receive server alert msg!")
 
+
+##############################################################################
 #
-# Producer : car
+# AMQP 처리 함수 지정 (차량 대쉬보드 - car)
 #
+##############################################################################
 def receive_car_start_facer(json_data):
     # 얼굴인식 시작시 카메라장치에 얼굴인식 시작신호 메세지 발행
     docs_json_data = {}
@@ -95,7 +108,7 @@ def receive_car_start_facer(json_data):
         alert_error('webos.camera.error',
                     "ERROR : 얼굴인식 종료신호 메세지를 작성/발행 중 오류가 발생했습니다. *오류명: %r" % str(e))
         return False
-   
+
     # 얼굴인식 결과값을 다시 자동차에게 반환
     docs_json_data = {}
     try:
@@ -155,9 +168,12 @@ def receive_car_signin(json_data):
     # MQTT를 통해 '이름값 반환' 메세지
     mqtt_publish('webos.car.info', message)
 
+
+##############################################################################
 #
-# Producer : android
+# AMQP 처리 함수 지정 (스마트폰 - android)
 #
+##############################################################################
 def receive_android_signup(json_data):
     # JSON 데이터 유효성 검사 (KEY 확인)
     try:
@@ -205,7 +221,7 @@ def receive_android_signin(json_data):
 
 ##############################################################################
 #
-# 선언 및 정의 (일반함수)
+# 일반함수 선언 및 정의 (일반함수)
 #
 ##############################################################################
 def print_debug(message):
@@ -248,8 +264,6 @@ def read_faceresultfile(file_path):
             lines = f.readlines()
             f_name = lines[0].strip()
             f_time = float(lines[1].strip())
-
-            return f_name
             '''
             time_interval = int(now_time - f_time)
             if time_interval < 120:  # 2분 이내에 얼굴인식 된 결과일 경우
@@ -257,6 +271,7 @@ def read_faceresultfile(file_path):
             elif int(now_time - before_time) > 120:  # 얼굴인식 요청이후 2분이 경과한 경우
                 return "error"
             '''
+            return f_name
 
 
 def json_key_is_there(json_data, key_list):
@@ -267,88 +282,175 @@ def json_key_is_there(json_data, key_list):
         raise(e)
 
 
-def dict_realtimedb_for_smarthome(dict_data):
-    # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수
+##############################################################################
+#
+# 일반함수 선언 및 정의 (파이어베이스)
+#
+##############################################################################
+def dict_realtimedb_decode_smarthome(dict_data):
+    # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수 / Return : Dict
+    return_dict = {}
     smarthome = dict_data['smarthome']
-    mode = smarthome['mode']
     status = smarthome['status']
 
-    aircon_enable = status[0:1]
-    aircon_fan = status[1:2]
-    light_enable = status[2:3]
-    light_brightness = status[3:4]
-    light_color = status[4:5]
-    light_mod = status[5:6]
-    window_enable = status[6:7]
-    gas_enable = status[7:8]
+    return_dict['mode'] = status[0:1]
+    return_dict['airconEnable'] = status[1:2]
+    return_dict['airconWindPower'] = status[2:3]
+    return_dict['lightEnable'] = status[3:4]
+    return_dict['lightBrightness'] = status[4:5]
+    return_dict['lightColor'] = status[5:6]
+    return_dict['lightMode'] = status[6:7]
+    return_dict['windowOpen'] = status[7:8]
+    return_dict['gasValveEnable'] = status[8:9]
 
-    return mode, aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
+    return return_dict
 
 
-def dict_for_smarthome(dict_data):
-    # 스케쥴 DB에서 가져온 dict 데이터를, 스마트홈 가전제어 프로토콜에 사용하기 위한 변수로 변환해주는 함수
+def dict_firestore_decode_smarthome(dict_data):
+    # 스케쥴 DB 또는 MODES DB에서 가져온 dict 데이터를, 스마트홈 가전제어 프로토콜에 사용하기 위한 변수로 변환해주는 함수 / Return : Dict
+    return_dict = {}
     if str(type(dict_data)) != "<class 'dict'>":
         raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
 
-    do_type = dict_data['type']
+    # 모드 정보 불러오기 ()
+    try:
+        return_dict['mode'] = dict_data['modeNum']
+    except Exception as e:
+        return_dict['mode'] = '0'
 
-    try:
-        if dict_data['Device_aircon'][0]:
-            aircon_enable = '1'
-        else:
-            aircon_enable = '0'
-    except Exception as e:
-        aircon_enable = '2'
-    try:
-        aircon_fan = str(dict_data['Device_aircon'][1])
-    except Exception as e:
-        aircon_fan = '0'
+    return_dict['airconEnable'] = dict_data['airconEnable']
+    return_dict['airconWindPower'] = dict_data['airconWindPower']
+    return_dict['lightEnable'] = dict_data['lightEnable']
+    return_dict['lightBrightness'] = dict_data['lightBrightness']
+    return_dict['lightColor'] = dict_data['lightColor']
+    return_dict['lightMode'] = dict_data['lightMode']
+    return_dict['windowOpen'] = dict_data['windowOpen']
+    return_dict['gasValveEnable'] = dict_data['gasValveEnable']
 
-    try:
-        if dict_data['Device_light'][0]:
-            light_enable = '1'
-        else:
-            light_enable = '0'
-    except Exception as e:
-        light_enable = '2'
-    try:
-        light_brightness = str(dict_data['Device_light'][1])
-    except Exception as e:
-        light_brightness = '9'
-    try:
-        light_color = str(dict_data['Device_light'][2])
-    except Exception as e:
-        light_color = '0'
-    try:
-        light_mod = str(dict_data['Device_light'][3])
-    except Exception as e:
-        light_mod = '0'
-
-    try:
-        if dict_data['Device_window'][0]:
-            window_enable = '1'
-        else:
-            window_enable = '0'
-    except Exception as e:
-        window_enable = '2'
-    try:
-        if dict_data['Device_gas'][0]:
-            gas_enable = '1'
-        else:
-            gas_enable = '0'
-    except Exception as e:
-        gas_enable = '2'
-
-    return do_type, aircon_enable, aircon_fan, light_enable, light_brightness, light_color, light_mod, window_enable, gas_enable
+    return return_dict
 
 
-def send_control_smarthome(aircon_enable, aircon_fan,
-                           light_enable, light_brightness, light_color, light_mod,
-                           window_enable, gas_enable):
-    message = aircon_enable + aircon_fan + light_enable + light_brightness + light_color + light_mod + window_enable + gas_enable
+def dict_compare_smarthome_alarm(dict_data_ori, dict_data_now):
+    global firestore_modes_db
+
+    msg_list = []
+    tm = time.localtime(time.time())
+    now_time = str(tm.tm_year) + "." + str(tm.tm_mon) + "." + str(tm.tm_mday) + "." + str(tm.tm_hour) + "." + str(tm.tm_min) + "." + str(tm.tm_sec)
+    # 모드 비교
+    if dict_data_ori['mode'] != dict_data_now['mode'] and str(dict_data_now['mode']) != '0':
+        # modes_db_copy 딕셔너리에서 이름 가져오기
+        now_mode_num = str(dict_data_now['mode'])
+        now_mode_name = "모드정보없음"
+        for mode_data in firestore_modes_db:
+            if str(mode_data['modeNum']) == str(dict_data_now['mode']):
+                now_mode_name = str(mode_data['modeName'])
+                break
+
+        # 업로드할 메세지 작성
+        msg_inform = now_mode_name + "가 실행되었습니다."
+
+        # 알람 메세지 작성
+        msg_list.append({
+            "icon": now_mode_num + "mode_icon",
+            "date": str(now_time),
+            "inform": msg_inform
+        })
+    else:
+        # 각 가전 상태비교
+        msg_inform = "empty"
+        if dict_data_ori['airconEnable'] != dict_data_now['airconEnable'] and  dict_data_now['airconEnable'] != '2':
+            if dict_data_now['airconEnable'] == '1':
+                msg_inform = "에어컨이 켜졌어요."
+            else:
+                msg_inform = "에어컨이 꺼졌어요."
+            msg_list.append({
+                "icon": "aircon_icon",
+                "date": str(now_time),
+                "inform": msg_inform
+            })
+        if dict_data_ori['lightEnable'] != dict_data_now['lightEnable'] and  dict_data_now['lightEnable'] != '2':
+            if dict_data_now['lightEnable'] == '1':
+                msg_inform = "전등이 켜졌어요."
+            else:
+                msg_inform = "전등이 꺼졌어요."
+            msg_list.append({
+                "icon": "light_icon",
+                "date": str(now_time),
+                "inform": msg_inform
+            })
+        if dict_data_ori['windowOpen'] != dict_data_now['windowOpen'] and  dict_data_now['windowOpen'] != '2':
+            if dict_data_now['windowOpen'] == '1':
+                msg_inform = "창문이 열렸어요."
+            else:
+                msg_inform = "창문이 닫혔어요."
+            msg_list.append({
+                "icon": "window_icon",
+                "date": str(now_time),
+                "inform": msg_inform
+            })
+        if dict_data_ori['gasValveEnable'] != dict_data_now['gasValveEnable'] and  dict_data_now['gasValveEnable'] != '2':
+            if dict_data_now['gasValveEnable'] == '1':
+                msg_inform = "가스밸브가 열렸어요."
+            else:
+                msg_inform = "가스밸브가 닫혔어요."
+            msg_list.append({
+                "icon": "gasvalve_icon",
+                "date": str(now_time),
+                "inform": msg_inform
+            })
+
+    # 해당을 데이터로 만듬
+    print("*알람 등록할 데이터 : {}" . format(msg_list))
+    return msg_list
+
+
+def encode_smarthome_protocol(dict_data):
+    # 딕셔너리 변수 생성
+    return_dict = {}
+
+    # 각 항목 변환
+    return_dict['mode'] = str(dict_data['mode'])  # 모드값
+
+    if dict_data['airconEnable']:
+        return_dict['airconEnable'] = '1'
+    else:
+        return_dict['airconEnable'] = '0'
+    return_dict['airconWindPower'] = str(dict_data['airconWindPower'])
+
+    if dict_data['lightEnable']:
+        return_dict['lightEnable'] = '1'
+    else:
+        return_dict['lightEnable'] = '0'
+    return_dict['lightBrightness'] = str(dict_data['lightBrightness'])
+    return_dict['lightColor'] = str(dict_data['lightColor'])
+    return_dict['lightMode'] = str(dict_data['lightMode'])
+
+    if dict_data['windowOpen']:
+        return_dict['windowOpen'] = '1'
+    else:
+        return_dict['windowOpen'] = '0'
+    if dict_data['gasValveEnable']:
+        return_dict['gasValveEnable'] = '1'
+    else:
+        return_dict['gasValveEnable'] = '0'
+
+    # smarthome형식의 string으로 반환
+    temp_string = return_dict['mode'] + return_dict['airconEnable'] + return_dict['airconWindPower'] + \
+                  return_dict['lightEnable'] + return_dict['lightBrightness'] + return_dict['lightColor'] + return_dict['lightMode'] + \
+                  return_dict['windowOpen']+return_dict['gasValveEnable']
+
+    return temp_string
+
+
+def send_control_smarthome(smarthome_protocol_string):
+    # 프로토콜이 맞는지 확인 (9자리)
+    if len(smarthome_protocol_string) != 9:
+        alert_error('data.error.error',
+                    "WARNING : server측에서 스마트홈 프로토콜에 맞지않는 값을 전송하려하여, 이를 무시합니다. *함수명 : send_control_smarthome() / Value : %r" % smarthome_protocol_string)
+        return False
 
     # MQTT를 통해 '스마트홈 가전제어' 메세지 전송
-    mqtt_publish('webos.smarthome.info', message)
+    mqtt_publish('webos.smarthome.info', smarthome_protocol_string)
 
 
 def read_firestore(collection_name):
@@ -360,6 +462,33 @@ def read_firestore(collection_name):
         print(u'{} => {}'.format(doc.id, doc.to_dict()))
     '''
     return docs
+
+
+def insert_alarm(alarm_dict):
+    # 파이어스토어 업로드하기 전, 데이터 무결성 검사
+    try:
+        check_alarm_right(alarm_dict)
+    except Exception as e:
+        alert_error('data.error.error',
+                    "WARNING : 잘못된 형식의 알람값을 전송하려고 합니다. 이를 무시합니다. *내용 : {0}, *오류명 : {1}".format(str(alarm_dict), str(e)))
+        return False
+    # 알람 발행시간 설정 (100억 - 현재시간값)
+    alarm_date = int(10000000000) - int(time.time())
+
+    # 파이어베이스에 데이터 업로드
+    doc_ref = db.collection(u'appliance_alarm').document( str(alarm_date) )
+    doc_ref.set(alarm_dict)
+
+
+def check_alarm_right(dict_data):
+    temp = dict_data['icon']
+    temp = dict_data['date']
+    temp = dict_data['inform']
+
+
+def delete_alarm(document_name):
+    #파이어베이스에 해당 문서 삭제
+    db.collection(u'appliance_alarm').document(document_name).delete()
 
 
 def delete_schedule(document_name):
@@ -380,32 +509,52 @@ def check_schedule_right(dict_data):
     if str(type(dict_data)) != "<class 'dict'>":
         raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
 
+    # 필수 값이 있는지 확인
     temp = (dict_data['UID'])
-    temp = (dict_data['type'])
+    temp = (dict_data['Title'])
+    temp = (dict_data['modeNum'])
 
-    if dict_data['type'] == 'once':
+    # 단발성 / 반복성에 따른 데이터가 있는지 확인
+    if dict_data['repeat'] == False:
         temp = (dict_data['Active_date'])
-    elif dict_data['type'] == 'repet':
+    elif dict_data['repeat'] == True:
         temp = (dict_data['Enabled'])
         temp = (dict_data['Daysofweek'])
         temp = (dict_data['Start_time'])
-    elif dict_data['type'] == 'mode':
+    else:
+        raise Exception("해당 문서에 'repeat'값에 형식이 잘못되었습니다. 실행함수:check_schedule_right. ")
+
+    # 해당모드에 관련 데이터가 있는지 확인
+    '''
+    if dict_data['modeNum']:
         pass
     else:
-        raise Exception("해당 문서에 'type'값에 형식이 잘못되었습니다. 실행함수:check_schedule_right. ")
+        pass
+    '''
 
 
 def check_schedule_now(dict_data):
+    global latest_schedule_check
+
+    # 최근 스케줄 동작시점과 비교하여, 현재시간이 그 시점보다 클경우에만 스케쥴 확인 진행
+    temp = int(time.strftime("%H%M", time.localtime(time.time())))
+    if latest_schedule_check >= temp:
+        return False
+
+    # 단발성/반복성에 따른 스케쥴 상세체크
     check_state = False
-    if dict_data['type'] == 'once':
+    if dict_data['repeat'] == False:
         # 일회성 로직인 경우
         active_time = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:16]))
         now_time = int(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
 
         # 확인 조건문
-        if (active_time - 1) <= now_time <= (active_time + 1):
+        if (active_time) <= now_time <= (active_time + 1):
             check_state = True
-    elif dict_data['type'] == 'repet':
+        else:
+            check_state = False
+
+    elif dict_data['repeat'] == True:
         # 실행해야되는건지 일단 확인
         time.sleep(0.0001)
         if not dict_data['Enabled']:
@@ -421,18 +570,77 @@ def check_schedule_now(dict_data):
         start_time = int(dict_data['Start_time'])
 
         time.sleep(0.0001)
-        if (start_time - 1 <= now_time) and (now_time <= start_time + 1):
+        if (start_time) <= now_time <= (start_time + 1):
             check_state = True
         else:
             check_state = False
-    elif dict_data['type'] == 'mode':  #모드는 서버에서 직접 실행되지 않음
-        check_state = False
     else:
-        raise Exception("해당 문서에 'type'값에 형식이 잘못되었습니다. 실행함수:check_schedule_now. ")
+        raise Exception("해당 문서에 'repeat'값에 형식이 잘못되었습니다. 실행함수:check_schedule_now. ")
 
     return check_state
 
 
+def on_snapshot_modes(doc_snapshot, changes, read_time):
+    # 모드 데이터가 변경되면 해당 정보를 로드하고 firestore_modes_db 정보를 갱신함
+    global firestore_modes_db
+    modes_query = read_firestore('modes')
+
+    # 파이어베이스에서 모드 정보 가져오기
+    firestore_modes_db = []
+    for mode_doc in modes_query:
+        this_mode_doc = mode_doc.to_dict()
+        try:
+            temp = this_mode_doc['modeNum']
+            temp = this_mode_doc['modeName']
+        except Exception as e:
+            alert_error('data.error.warning',
+                        "WARNING : modes 데이터베이스에 name 또는 num이 없는 문서가 있습니다. *오류명 : %r" % str(e))
+        try:
+            firestore_modes_db.append(this_mode_doc)
+        except Exception as e:
+            alert_error('data.error.error',
+                        "ERROR : modes 데이터베이스의 값을 갱신받는 도중 에러가 발생하였습니다. *오류명 : %r" % str(e))
+
+    print("[info] modes Firestroe 정보가 수정되었습니다. ")
+
+
+def on_snapshot_alarm(doc_snapshot, changes, read_time):
+    # 알람 데이터가 상한선(20개)를 넘는지 확인하고 처리함
+    alarm_list_limit = 20
+    alarm_query = read_firestore('appliance_alarm')
+    count = 1
+
+    for alarm_doc in alarm_query:
+        if count > alarm_list_limit:
+            delete_alarm(alarm_doc.id)
+            print("[info] 오래된 alarm 데이터를 삭제했습니다. ")
+        count = count + 1
+
+
+def on_snapshot_schedule(doc_snapshot, changes, read_time):
+    # 스케쥴 데이터가 변경되면 해당 정보를 로드하고 firestore_schedule_db 정보를 갱신함
+    global firestore_schedule_db
+    schedule_query = read_firestore('schedule_mode')
+
+    # 파이어베이스에서 모드 정보 가져오기
+    firestore_schedule_db = []
+    for schedule_doc in schedule_query:
+        this_schedule_doc = schedule_doc.to_dict()
+        this_schedule_doc['title'] = str(schedule_doc.id)
+        try:
+            firestore_schedule_db.append(this_schedule_doc)
+        except Exception as e:
+            alert_error('data.error.error',
+                        "ERROR : schedule 데이터베이스의 값을 갱신받는 도중 에러가 발생하였습니다. *오류명 : %r" % str(e))
+
+    print("[info] schedule Firestroe 정보가 수정되었습니다. ")
+
+
+##############################################################################
+#
+# 일반함수 선언 및 정의 (AMQP - RabbitMQ)
+#
+##############################################################################
 def on_mqtt_message(channel, method_frame, header_frame, body):
     print("[R] ecive MQTT Message")
 
@@ -478,18 +686,20 @@ def on_mqtt_message(channel, method_frame, header_frame, body):
 
 
 def on_mqtt_smarthome(channel, method_frame, header_frame, body):
+    body_decode = ""
     try:
         body_decode = body.decode()
     except Exception as e:
-        print("no~")
+        print("*SmartHome on_mqtt error")
 
     # 데이터 형식 확인 (9글자)
     if len(body_decode) != 9:
+        print("*SmartHome Protocol : Wrong Protocol is Received")
         return False
 
+    '''
     # 사용할 데이터 정제
     status = body_decode
-
     mode = status[0:1]
     aircon_enable = status[1:2]
     aircon_fan = status[2:3]
@@ -499,12 +709,13 @@ def on_mqtt_smarthome(channel, method_frame, header_frame, body):
     light_mod = status[6:7]
     window_enable = status[7:8]
     gas_enable = status[8:9]
+    '''
 
-    # 기대상태 변수에 각 정보들을 모두 저장
-    print(body_decode)
+    # 현재 상태를 확인하여 어떤 정보를 업데이트해야되는지 확인 (보낼것들을 List로 작성)
+    print("*SmartHome Protocol : {0}".format(body_decode))
 
-    # 아래는 단순 테스트용, 나중에 다른함수나 메인쪽으로 돌리셈;
-    write_mode_state(mode_file_path, mode)
+    # 더 이상 RealTimeDB에 모드값을 서버가 업데이트하지 않음.
+    # write_mode_state(mode_file_path, mode)
 
 
 def thread_consume_queue():
@@ -565,7 +776,6 @@ def mqtt_publish(routing_key, message):
 # 초기설정 (Init)
 #
 ##############################################################################
-
 # Slack Bot 개체 생성하기
 print("[init] Slack Bot")
 sl = slack.SlackBot(token=slack_token)
@@ -580,6 +790,23 @@ firebase_admin.initialize_app(cred, {
 db = firestore.client()
 time.sleep(0.01)
 
+# FireStore Listener 생성
+modes_watch = db.collection('modes').on_snapshot(on_snapshot_modes)
+alarm_watch = db.collection('appliance_alarm').on_snapshot(on_snapshot_alarm)
+schedule_watch = db.collection('schedule_mode').on_snapshot(on_snapshot_schedule)
+
+# RealTime DB 값 불러오기
+print_debug("[init] Load RealTime DB JSON")
+smarthome_appliance_now = {}
+smarthome_appliance_before = {}
+try:
+    rtdb_dict_data = read_jsonfile(json_file_path)  # 정안되면 이걸 json이 아닌 config로 만들어..?
+    smarthome_appliance_now = dict_realtimedb_decode_smarthome(rtdb_dict_data)
+    smarthome_appliance_before = smarthome_appliance_now
+except Exception as e:
+    alert_error("data.error.error",
+                "ERROR : RealTimeDB.JSON을 불러오는 중에 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
+
 # RabbitMQ 구독 진행 (쓰레드 실행)
 print("[init] RabbitMQ Thread (webos.server)")
 t = threading.Thread(target=thread_consume_queue, daemon=True)  # webos.server
@@ -591,7 +818,6 @@ t2 = threading.Thread(target=thread_consume_smarthome, daemon=True)  # data.smar
 t2.start()
 time.sleep(4)
 
-# write_mode_state(mode_file_path, "fuckyou")
 ##############################################################################
 #
 # 반복 실행
@@ -602,76 +828,116 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
     # RealTime DB 값 불러오기
     print_debug("[A] Load RealTime DB JSON")
     try:
-        rtdb_dict_data = read_jsonfile(json_file_path)  # 정안되면 이걸 json이 아닌 config로 만들어..?
-        # print(rtdb_dict_data)
+        rtdb_dict_data = read_jsonfile(json_file_path)  # CP949 형식으로 수정. (문제발생시 configPasere(ini) 형식으로 수정)
+        smarthome_appliance_now = dict_realtimedb_decode_smarthome(rtdb_dict_data)
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : RealTimeDB.JSON을 불러오는 중에 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
-    # FireStore Schedule 값 불러오기
-    print_debug("[A] Load FireStore Schedule")
+    # 가전현상태의 이전값과 현재값을 비교하여 차이가 있는 경우 이를 알람(Firestore)으로 발생시킴
+    print_debug("[A] check smarthome appliance status is changed")
     try:
-        # FireStore의 schedule_mode 컬렉션 불러오기
-        print_debug(" ┗[1] Load 'Schedule_mode' collection")
-        schedule_query = read_firestore('schedule_mode')
+        print_debug(" ┗[1] 스마트홈 가전상태 변화 확인")
+        # print_debug("   ┗[2] 가전 이전상태 : %r" % str(smarthome_appliance_before.values()))
+        # print_debug("   ┗[2] 가전 현재상태 : %r" % str(smarthome_appliance_now.values()))
 
-        # 각 문서(doc)별로 내용 분석
-        print_debug(" ┗[2] schedule to dict")
-        for doc in schedule_query:
-            schedule_dict = doc.to_dict()
-            try:
-                # DB에 저장되어있던 스케쥴 형식이 정상적인 형식인지 확인
-                print_debug("   ┗[1] check schedule right")
-                check_schedule_right(schedule_dict)
-            except Exception as e:
-                alert_error("data.error.error",
-                            "WARNING : FireStore DB에 형식이 잘못된 데이터가 있습니다. 확인이 필요합니다. *문서ID : " +
-                            str(doc.id) + " / *오류명 : " + str(e))
-                continue
+        if smarthome_appliance_now != smarthome_appliance_before:
+            print_debug(" ┗[2] 가전제어값에 변화 있음")
+            msg_list = dict_compare_smarthome_alarm(smarthome_appliance_before, smarthome_appliance_now)
 
-            # 현재 실행해야 하는 스케쥴인지 확인
-            print_debug("   ┗[2] check run this time")
-            if check_schedule_now(schedule_dict):
-                # 실시간DB의 값을 '스마트홈 프로토콜 형식'으로 변환
-                om, o1, o2, o3, o4, o5, o6, o7, o8 = dict_realtimedb_for_smarthome(rtdb_dict_data)
+            print_debug(" ┗[3] 알람메시지 작성완료")
+            # 파이어스토어에 알람 데이터 추가
+            for alarm_msg in msg_list:
+                print_debug("  ┗[1] 알람메시지 파이어스토어에 발행")
+                insert_alarm(alarm_msg)
 
-                # '스마트홈 프로토콜 형식'으로 명령 생성
-                mm, m1, m2, m3, m4, m5, m6, m7, m8 = dict_for_smarthome(schedule_dict)
+            # 알람 데이터 갯수가 많을 경우 이전내용부터 순차적으로 제거
+            # alarm firestore listner callback 함수가 이를 처리
 
-                # 스케쥴값과 실시간DB값을 비교하여, 실행해야 하는 명령만 명령으로 확정
-                print_debug("{0} {1} {2} {3} {4} {5} {6} {7}".format(o1,o2,o3,o4,o5,o6,o7,o8))
-                print_debug("{0} {1} {2} {3} {4} {5} {6} {7}".format(m1,m2,m3,m4,m5,m6,m7,m8))
-                flag_sendmsg = False
-                if m1 != o1 and m1 != '2':  # on/off값이 기존과 다르고, 현행유지 상태가 아니라면 명령을 새로 내린다.
-                    flag_sendmsg = True
-                elif m1 == '1' and m2 != o2:  # 밝기제어값이 다른경우
-                    flag_sendmsg = True
+            # 동작완료 후, 이전 스마트홈 값을 최신값으로 갱신
+            print_debug(" ┗[4] 가전제어 저장값 갱신")
+            smarthome_appliance_before = smarthome_appliance_now
+    except Exception as e:
+        alert_error('data.error.error',
+                    "WARNING : 스마트홈 가전 변동사항 감지 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
-                if m3 != o3 and m3 != '2':
-                    flag_sendmsg = True
-                elif m3 == '1' and (m4 != o4 or m5 != o5 or m6 != o7):
-                    flag_sendmsg = True
+    # 현재시점에서 처리해야하는 Schedule이 있는지 확인
+    print_debug("[A] Load FireStore Schedule")
+    #try:
+    # 각 문서(doc)별로 내용 분석
+    update_latest_schedule_run_time = False
+    for doc in firestore_schedule_db:
+        schedule_dict = doc
+        #schedule_dict['mode'] = '0'
+        try:
+            # DB에 저장되어있던 스케쥴 형식이 정상적인 형식인지 확인
+            check_schedule_right(schedule_dict)
+        except Exception as e:
+            alert_error("data.error.error",
+                        "WARNING : FireStore DB에 형식이 잘못된 데이터가 있습니다. 확인이 필요합니다. *문서ID : " +
+                        str(schedule_dict['title']) + " / *오류명 : " + str(e))
+            continue
 
-                if m7 != o7 and m7 != '2':
-                    flag_sendmsg = True
-                if m8 != o8 and m8 != '2':
-                    flag_sendmsg = True
+        # 현재 실행해야 하는 스케쥴인지 확인
+        if check_schedule_now(schedule_dict):
+            print_debug(" ┗[1] Time to execute this schedule. *Name : %r" % str(schedule_dict['title']))
 
-                # 새로 진행해야할 명령이 있따면, 해당명령을 '스마트홈 큐'로 전달
-                # print("flag : %r" % str(flag_sendmsg))
-                if flag_sendmsg:
-                    print("   ┗[3] send control msg to smarthome")
-                    send_control_smarthome(m1, m2, m3, m4, m5, m6, m7, m8)
-                    print("[X] send to smarthome queue")
-                # 명령 전달이후 once 인 메세지는 스케쥴에서 삭제진행 ㄱㄱ
-                if mm == 'once':
-                    print("   ┗[4] delete schedule (cuz it is 'type: once')")
-                    delete_schedule(doc.id)
+            # 모드(modeNum)값을 확인하여 0이 아니면, 모드로 판단하여 modes에 값을 불러옴
+            if str(schedule_dict['modeNum']) == '0':
+                # 스케쥴 데이터를 '스마트홈 프로토콜 형식'으로 생성
+                schedule_appliance = dict_firestore_decode_smarthome(schedule_dict)
+            else:
+                # 모드값이 있는 경우 해당 모드에 정보를 불러와 '스마트홈 프로토콜 형식'으로 생성
+                for mode_doc in firestore_modes_db:
+                    if mode_doc['modeNum'] == schedule_dict['modeNum']:
+                        schedule_appliance = dict_firestore_decode_smarthome(mode_doc)
+                        break
 
+            # 스케쥴값과 실시간DB값을 비교하여, 실행해야 하는 명령만 명령으로 확정
+            flag_sendmsg = False
+            if schedule_appliance['airconEnable'] != smarthome_appliance_now['airconEnable'] and \
+                    schedule_appliance['airconEnable'] != '2':  # On/Off가 기존과 상이하고, 현행유지 상태가 아닌경우
+                flag_sendmsg = True
+            elif schedule_appliance['airconEnable'] == True and \
+                    schedule_appliance['airconWindPower'] != smarthome_appliance_now['airconWindPower']:  # 풍량 값이 다른 경우
+                flag_sendmsg = True
+
+            if schedule_appliance['lightEnable'] != smarthome_appliance_now['lightEnable'] and \
+                    schedule_appliance['lightEnable'] != '2':  # On/Off가 기존과 상이하고, 현행유지 상태가 아닌경우
+                flag_sendmsg = True
+            elif schedule_appliance['lightEnable'] == True and (
+                    schedule_appliance['lightBrightness'] != smarthome_appliance_now['lightBrightness'] or
+                    schedule_appliance['lightColor'] != smarthome_appliance_now['lightColor'] or
+                    schedule_appliance['lightMode'] != smarthome_appliance_now['lightMode']):  # 전등 상세값이 다른 경우
+                flag_sendmsg = True
+
+            if schedule_appliance['windowOpen'] != smarthome_appliance_now['windowOpen'] and \
+                    schedule_appliance['windowOpen'] != '2':  # On/Off가 기존과 상이하고, 현행유지 상태가 아닌경우
+                flag_sendmsg = True
+            if schedule_appliance['gasValveEnable'] != smarthome_appliance_now['gasValveEnable'] and \
+                    schedule_appliance['gasValveEnable'] != '2':  # On/Off가 기존과 상이하고, 현행유지 상태가 아닌경우
+                flag_sendmsg = True
+
+            # 새로 진행해야할 명령이 있따면, 해당명령을 '스마트홈 큐'로 전달
+            if flag_sendmsg:
+                print(" ┗[2] send control msg to smarthome")
+                send_control_smarthome(encode_smarthome_protocol(schedule_appliance))
+                update_latest_schedule_run_time = True
+            # 명령 전달이후 once 인 메세지는 스케쥴에서 삭제진행
+            if schedule_dict['repeat'] == False:
+                print(" ┗[3] delete schedule (cuz it is 'repeat: False')")
+                delete_schedule(schedule_dict['title'])
+
+    # 스케쥴 관련 동작을 실행한경우 '최종스케줄 실행시간(lateset_schedule_check)' 갱신
+    if update_latest_schedule_run_time:
+        latest_schedule_check = int(time.strftime("%H%M", time.localtime(time.time())))
+    '''
     except Exception as e:
         alert_error("data.error.error",
                     "ERROR : FireStore Schedule 값을 처리하는 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
+    '''
     # 또 어떤 로직이 이곳에 오게될것인가~
 
     # 동작대기
-    time.sleep(20)
+    time.sleep(1)
+
