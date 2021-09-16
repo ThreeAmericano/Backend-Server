@@ -2,7 +2,7 @@
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-09-10
+#   수정일 : 2021-09-16
 #   작성자 : 최현식(chgy2131@naver.com)
 #
 #   변경점
@@ -13,11 +13,11 @@
 #        - MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
 #        - 파이어스토어 스케쥴 부분 구성 변경에 따른 관련 함수 수정
 #        - 얼굴인식을 독립적인 프로세스로 진행함.
-#        - 파이어스토어의 alarm, modes 부분을 리스너를 통해 동작하도록 수정
+#        - 파이어스토어의 alarm, modes, schedule 부분을 리스너를 통해 동작하도록 수정
+#        - 스케쥴을 명령을 이제 한번만 보냅니다. (지속체크 x)
 #   해야할거
-#        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함 (각 기기에서 그냥 구현?)
 #        - 스케쥴 repet이 false인(단발성 스케쥴) 데이터는 실행 후 삭제한다. (테스트 필요)
-#        - data.smarthome(clone)을 consume(수신)하여 작업 체크 (필요없어짐)
+#        - 각 센서 및 API 정보를 수집하여 사용자에게 행동 추천
 #
 ##############################################################################
 
@@ -52,6 +52,8 @@ face_recognition_path = "/home/pi/Face-Recognition/realtime_facenet_git.py"
 face_recognition_result = "/home/pi/Face-Recognition/face.result"
 
 firestore_modes_db = []
+firestore_schedule_db = []
+latest_schedule_check = int(time.strftime("%H%M", time.localtime(time.time()))) - 1
 
 ##############################################################################
 #
@@ -321,7 +323,7 @@ def dict_firestore_decode_smarthome(dict_data):
     return_dict['lightEnable'] = dict_data['lightEnable']
     return_dict['lightBrightness'] = dict_data['lightBrightness']
     return_dict['lightColor'] = dict_data['lightColor']
-    return_dict['lightMode'] = dict_data['lightMode'] - 8
+    return_dict['lightMode'] = dict_data['lightMode']
     return_dict['windowOpen'] = dict_data['windowOpen']
     return_dict['gasValveEnable'] = dict_data['gasValveEnable']
 
@@ -345,7 +347,7 @@ def dict_compare_smarthome_alarm(dict_data_ori, dict_data_now):
                 break
 
         # 업로드할 메세지 작성
-        msg_inform = "'" + now_mode_name + "'가 실행되었습니다."
+        msg_inform = now_mode_name + "가 실행되었습니다."
 
         # 알람 메세지 작성
         msg_list.append({
@@ -532,6 +534,14 @@ def check_schedule_right(dict_data):
 
 
 def check_schedule_now(dict_data):
+    global latest_schedule_check
+
+    # 최근 스케줄 동작시점과 비교하여, 현재시간이 그 시점보다 클경우에만 스케쥴 확인 진행
+    temp = int(time.strftime("%H%M", time.localtime(time.time())))
+    if latest_schedule_check >= temp:
+        return False
+
+    # 단발성/반복성에 따른 스케쥴 상세체크
     check_state = False
     if dict_data['repeat'] == False:
         # 일회성 로직인 경우
@@ -539,8 +549,10 @@ def check_schedule_now(dict_data):
         now_time = int(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
 
         # 확인 조건문
-        if (active_time - 1) <= now_time <= (active_time + 1):
+        if (active_time) <= now_time <= (active_time + 1):
             check_state = True
+        else:
+            check_state = False
 
     elif dict_data['repeat'] == True:
         # 실행해야되는건지 일단 확인
@@ -558,7 +570,7 @@ def check_schedule_now(dict_data):
         start_time = int(dict_data['Start_time'])
 
         time.sleep(0.0001)
-        if (start_time - 1 <= now_time) and (now_time <= start_time + 1):
+        if (start_time) <= now_time <= (start_time + 1):
             check_state = True
         else:
             check_state = False
@@ -606,10 +618,21 @@ def on_snapshot_alarm(doc_snapshot, changes, read_time):
 
 
 def on_snapshot_schedule(doc_snapshot, changes, read_time):
-    # FireStore의 schedule_mode 컬렉션 불러오기
-    global schedule_query
-    alarm_list_limit = 20
+    # 스케쥴 데이터가 변경되면 해당 정보를 로드하고 firestore_schedule_db 정보를 갱신함
+    global firestore_schedule_db
     schedule_query = read_firestore('schedule_mode')
+
+    # 파이어베이스에서 모드 정보 가져오기
+    firestore_schedule_db = []
+    for schedule_doc in schedule_query:
+        this_schedule_doc = schedule_doc.to_dict()
+        this_schedule_doc['title'] = str(schedule_doc.id)
+        try:
+            firestore_schedule_db.append(this_schedule_doc)
+        except Exception as e:
+            alert_error('data.error.error',
+                        "ERROR : schedule 데이터베이스의 값을 갱신받는 도중 에러가 발생하였습니다. *오류명 : %r" % str(e))
+
     print("[info] schedule Firestroe 정보가 수정되었습니다. ")
 
 
@@ -767,9 +790,6 @@ firebase_admin.initialize_app(cred, {
 db = firestore.client()
 time.sleep(0.01)
 
-# FireStore Schedule 초기값 불러오기
-schedule_query = read_firestore('schedule_mode')
-
 # FireStore Listener 생성
 modes_watch = db.collection('modes').on_snapshot(on_snapshot_modes)
 alarm_watch = db.collection('appliance_alarm').on_snapshot(on_snapshot_alarm)
@@ -818,8 +838,8 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
     print_debug("[A] check smarthome appliance status is changed")
     try:
         print_debug(" ┗[1] 스마트홈 가전상태 변화 확인")
-        print_debug("   ┗[2] 가전 이전상태 : %r" % str(smarthome_appliance_before.values()))
-        print_debug("   ┗[2] 가전 현재상태 : %r" % str(smarthome_appliance_now.values()))
+        # print_debug("   ┗[2] 가전 이전상태 : %r" % str(smarthome_appliance_before.values()))
+        # print_debug("   ┗[2] 가전 현재상태 : %r" % str(smarthome_appliance_now.values()))
 
         if smarthome_appliance_now != smarthome_appliance_before:
             print_debug(" ┗[2] 가전제어값에 변화 있음")
@@ -845,8 +865,9 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
     print_debug("[A] Load FireStore Schedule")
     #try:
     # 각 문서(doc)별로 내용 분석
-    for doc in schedule_query:
-        schedule_dict = doc.to_dict()
+    update_latest_schedule_run_time = False
+    for doc in firestore_schedule_db:
+        schedule_dict = doc
         #schedule_dict['mode'] = '0'
         try:
             # DB에 저장되어있던 스케쥴 형식이 정상적인 형식인지 확인
@@ -854,12 +875,12 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
         except Exception as e:
             alert_error("data.error.error",
                         "WARNING : FireStore DB에 형식이 잘못된 데이터가 있습니다. 확인이 필요합니다. *문서ID : " +
-                        str(doc.id) + " / *오류명 : " + str(e))
+                        str(schedule_dict['title']) + " / *오류명 : " + str(e))
             continue
 
         # 현재 실행해야 하는 스케쥴인지 확인
         if check_schedule_now(schedule_dict):
-            print_debug(" ┗[1] Time to execute this schedule. *Name : %r" % str(doc.id))
+            print_debug(" ┗[1] Time to execute this schedule. *Name : %r" % str(schedule_dict['title']))
 
             # 모드(modeNum)값을 확인하여 0이 아니면, 모드로 판단하여 modes에 값을 불러옴
             if str(schedule_dict['modeNum']) == '0':
@@ -901,10 +922,15 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
             if flag_sendmsg:
                 print(" ┗[2] send control msg to smarthome")
                 send_control_smarthome(encode_smarthome_protocol(schedule_appliance))
+                update_latest_schedule_run_time = True
             # 명령 전달이후 once 인 메세지는 스케쥴에서 삭제진행
             if schedule_dict['repeat'] == False:
                 print(" ┗[3] delete schedule (cuz it is 'repeat: False')")
-                delete_schedule(doc.id)
+                delete_schedule(schedule_dict['title'])
+
+    # 스케쥴 관련 동작을 실행한경우 '최종스케줄 실행시간(lateset_schedule_check)' 갱신
+    if update_latest_schedule_run_time:
+        latest_schedule_check = int(time.strftime("%H%M", time.localtime(time.time())))
     '''
     except Exception as e:
         alert_error("data.error.error",
@@ -914,3 +940,4 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
 
     # 동작대기
     time.sleep(1)
+
