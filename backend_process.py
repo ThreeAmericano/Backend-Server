@@ -13,11 +13,11 @@
 #        - MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
 #        - 파이어스토어 스케쥴 부분 구성 변경에 따른 관련 함수 수정
 #        - 얼굴인식을 독립적인 프로세스로 진행함.
-#        - 파이어스토어의 alarm, modes, schedule 부분을 리스너를 통해 동작하도록 수정
-#        - 스케쥴을 명령을 이제 한번만 보냅니다. (지속체크 x)
+#        - 파이어스토어의 alarm, modes 부분을 리스너를 통해 동작하도록 수정
 #   해야할거
+#        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함 (각 기기에서 그냥 구현?)
 #        - 스케쥴 repet이 false인(단발성 스케쥴) 데이터는 실행 후 삭제한다. (테스트 필요)
-#        - 각 센서 및 API 정보를 수집하여 사용자에게 행동 추천
+#        - data.smarthome(clone)을 consume(수신)하여 작업 체크 (필요없어짐)
 #
 ##############################################################################
 
@@ -538,6 +538,7 @@ def check_schedule_now(dict_data):
 
     # 최근 스케줄 동작시점과 비교하여, 현재시간이 그 시점보다 클경우에만 스케쥴 확인 진행
     temp = int(time.strftime("%H%M", time.localtime(time.time())))
+    print(" {0} >= {1} : False".format(latest_schedule_check, temp))
     if latest_schedule_check >= temp:
         return False
 
@@ -929,8 +930,11 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
                 delete_schedule(schedule_dict['title'])
 
     # 스케쥴 관련 동작을 실행한경우 '최종스케줄 실행시간(lateset_schedule_check)' 갱신
+    now_time_hhmm = int(time.strftime("%H%M", time.localtime(time.time())))
     if update_latest_schedule_run_time:
-        latest_schedule_check = int(time.strftime("%H%M", time.localtime(time.time())))
+        latest_schedule_check = now_time_hhmm
+    elif (now_time_hhmm <= 1):
+        latest_schedule_check = -1
     '''
     except Exception as e:
         alert_error("data.error.error",
