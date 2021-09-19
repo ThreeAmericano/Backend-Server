@@ -28,6 +28,8 @@
 #
 ##############################################################################
 import time
+from datetime import datetime
+from datetime import timedelta
 import threading
 import json
 import firebase_admin
@@ -109,13 +111,24 @@ def receive_car_start_facer(json_data):
                     "ERROR : 얼굴인식 종료신호 메세지를 작성/발행 중 오류가 발생했습니다. *오류명: %r" % str(e))
         return False
 
+    # 얼굴인식 결과로 받아온 UID를 이용하여 이름값을 받아옴.
+    user_name = "fail"
+    if fr_name != "fail":
+        # 파이어베이스에서 해당 회원(UID)의 이름을 가져옴
+        users_ref = db.collection(u'user_account').document(fr_name)
+        name_docs = users_ref.get()
+        name_docs_dict = name_docs.to_dict()
+        user_name = name_docs_dict['name']
+
     # 얼굴인식 결과값을 다시 자동차에게 반환
     docs_json_data = {}
     try:
         docs_json_data['Producer'] = "server"
         docs_json_data['command'] = "return_facer"
-        docs_json_data['result'] = fr_name  # 해당 값이 Exception / Error / None 인 경우 예외임.
+        docs_json_data['result'] = fr_name  # 해당 값이 Exception / Error / None / fail 인 경우 예외임.
+        docs_json_data['name'] = user_name  # 해당 값이 fail인 경우 user_account에 이름이 없는 경우임.
         message = json.dumps(docs_json_data, ensure_ascii=False)
+        print("frname %r" % str(message))
     except Exception as e:
         alert_error('webos.car.error',
                     "ERROR : 얼굴인식 결과 메세지를 보내는 도중 오류가 발생했습니다. *오류명: %r" % str(e))
@@ -517,6 +530,7 @@ def check_schedule_right(dict_data):
     # 단발성 / 반복성에 따른 데이터가 있는지 확인
     if dict_data['repeat'] == False:
         temp = (dict_data['Active_date'])
+        temp = (dict_data['Enabled'])
     elif dict_data['repeat'] == True:
         temp = (dict_data['Enabled'])
         temp = (dict_data['Daysofweek'])
@@ -536,45 +550,40 @@ def check_schedule_right(dict_data):
 def check_schedule_now(dict_data):
     global latest_schedule_check
 
+    check_state = False
+    now_time = int(time.strftime("%H%M", time.localtime(time.time())))
+    now_date = int(time.strftime("%Y%m%d", time.localtime(time.time())))
+    start_time = int(dict_data['Start_time'])
+
     # 최근 스케줄 동작시점과 비교하여, 현재시간이 그 시점보다 클경우에만 스케쥴 확인 진행
-    temp = int(time.strftime("%H%M", time.localtime(time.time())))
-    print(" {0} >= {1} : False".format(latest_schedule_check, temp))
-    if latest_schedule_check >= temp:
+    if latest_schedule_check >= now_time:
+        return False
+
+    # 공통 조건 확인
+    if not dict_data['Enabled']:
+        return False
+
+    if (start_time) <= now_time <= (start_time + 1):
+        check_state = True
+    else:
         return False
 
     # 단발성/반복성에 따른 스케쥴 상세체크
-    check_state = False
     if dict_data['repeat'] == False:
         # 일회성 로직인 경우
-        active_time = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:16]))
-        now_time = int(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
+        active_date = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:10]))
+        print("{0} vs {1}".format(active_date, now_date))
 
-        # 확인 조건문
-        if (active_time) <= now_time <= (active_time + 1):
+        if active_date == now_date:
             check_state = True
         else:
-            check_state = False
-
-    elif dict_data['repeat'] == True:
-        # 실행해야되는건지 일단 확인
-        time.sleep(0.0001)
-        if not dict_data['Enabled']:
             return False
 
+    elif dict_data['repeat'] == True:
         # 주기적 로직인 경우
         now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))]  # 동작 요일 확인
         if not now_dayoftheweek:
             return False
-
-        # 일단 STR을 INT형으로 바꾼후 비교문 연산
-        now_time = int(time.strftime("%H%M", time.localtime(time.time())))
-        start_time = int(dict_data['Start_time'])
-
-        time.sleep(0.0001)
-        if (start_time) <= now_time <= (start_time + 1):
-            check_state = True
-        else:
-            check_state = False
     else:
         raise Exception("해당 문서에 'repeat'값에 형식이 잘못되었습니다. 실행함수:check_schedule_now. ")
 
