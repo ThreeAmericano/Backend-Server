@@ -2,7 +2,7 @@
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-09-16
+#   수정일 : 2021-09-22
 #   작성자 : 최현식(chgy2131@naver.com)
 #
 #   변경점
@@ -14,10 +14,9 @@
 #        - 파이어스토어 스케쥴 부분 구성 변경에 따른 관련 함수 수정
 #        - 얼굴인식을 독립적인 프로세스로 진행함.
 #        - 파이어스토어의 alarm, modes 부분을 리스너를 통해 동작하도록 수정
+#        - 스케쥴 repet이 false인(단발성 스케쥴) 데이터는 실행 후 삭제한다.
 #   해야할거
-#        - 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함 (각 기기에서 그냥 구현?)
-#        - 스케쥴 repet이 false인(단발성 스케쥴) 데이터는 실행 후 삭제한다. (테스트 필요)
-#        - data.smarthome(clone)을 consume(수신)하여 작업 체크 (필요없어짐)
+#        - 센서값에 따른 관련동작을 사용자에게 추천
 #
 ##############################################################################
 
@@ -523,18 +522,16 @@ def check_schedule_right(dict_data):
         raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
 
     # 필수 값이 있는지 확인
-    temp = (dict_data['UID'])
-    temp = (dict_data['Title'])
+    temp = (dict_data['title'])
     temp = (dict_data['modeNum'])
+    temp = (dict_data['enabled'])
+    temp = (dict_data['startTime'])
 
     # 단발성 / 반복성에 따른 데이터가 있는지 확인
     if dict_data['repeat'] == False:
-        temp = (dict_data['Active_date'])
-        temp = (dict_data['Enabled'])
+        temp = (dict_data['activeDate'])
     elif dict_data['repeat'] == True:
-        temp = (dict_data['Enabled'])
-        temp = (dict_data['Daysofweek'])
-        temp = (dict_data['Start_time'])
+        temp = (dict_data['daysOfWeek'])
     else:
         raise Exception("해당 문서에 'repeat'값에 형식이 잘못되었습니다. 실행함수:check_schedule_right. ")
 
@@ -553,14 +550,14 @@ def check_schedule_now(dict_data):
     check_state = False
     now_time = int(time.strftime("%H%M", time.localtime(time.time())))
     now_date = int(time.strftime("%Y%m%d", time.localtime(time.time())))
-    start_time = int(dict_data['Start_time'])
+    start_time = int(dict_data['startTime'])
 
     # 최근 스케줄 동작시점과 비교하여, 현재시간이 그 시점보다 클경우에만 스케쥴 확인 진행
     if latest_schedule_check >= now_time:
         return False
 
     # 공통 조건 확인
-    if not dict_data['Enabled']:
+    if not dict_data['enabled']:
         return False
 
     if (start_time) <= now_time <= (start_time + 1):
@@ -571,7 +568,7 @@ def check_schedule_now(dict_data):
     # 단발성/반복성에 따른 스케쥴 상세체크
     if dict_data['repeat'] == False:
         # 일회성 로직인 경우
-        active_date = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:10]))
+        active_date = int(re.sub(r'[^0-9]', '', str(dict_data['activeDate'])[0:10]))
         print("{0} vs {1}".format(active_date, now_date))
 
         if active_date == now_date:
@@ -581,7 +578,7 @@ def check_schedule_now(dict_data):
 
     elif dict_data['repeat'] == True:
         # 주기적 로직인 경우
-        now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))]  # 동작 요일 확인
+        now_dayoftheweek = dict_data['daysOfWeek'][int(time.strftime("%w", time.localtime(time.time())))]  # 동작 요일 확인
         if not now_dayoftheweek:
             return False
     else:
