@@ -45,7 +45,7 @@ slack_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_project_name = 'threeamericano'
 json_file_path = "./realtimedb.json"
-mode_file_path = "./smarthome_mode"
+rt_file_path = "./server_notification"
 stream_url = "http://10.8.0.2:8090/stream/video.mjpeg"
 stream_detecttime = 15
 stream_limittime = 60
@@ -111,13 +111,19 @@ def receive_car_start_facer(json_data):
         return False
 
     # 얼굴인식 결과로 받아온 UID를 이용하여 이름값을 받아옴.
+    print("=======> %r" % fr_name)
     user_name = "fail"
-    if fr_name != "fail":
-        # 파이어베이스에서 해당 회원(UID)의 이름을 가져옴
-        users_ref = db.collection(u'user_account').document(fr_name)
-        name_docs = users_ref.get()
-        name_docs_dict = name_docs.to_dict()
-        user_name = name_docs_dict['name']
+    try:
+        if (fr_name != "none") or (fr_name != "fail"):
+            # 파이어베이스에서 해당 회원(UID)의 이름을 가져옴
+            users_ref = db.collection(u'user_account').document(fr_name)
+            name_docs = users_ref.get()
+            name_docs_dict = name_docs.to_dict()
+            user_name = name_docs_dict['name']
+        else:
+            print("ABCDEK")
+    except Exception as e:
+        print("얼굴인식 실패 예외처리: %r" % str(e))
 
     # 얼굴인식 결과값을 다시 자동차에게 반환
     docs_json_data = {}
@@ -255,11 +261,11 @@ def alert_error(routing_key, message):
         return False
 
 
-def write_mode_state(file_path, now_state):
-    mode_file = open(file_path, "wt")
-    mode_file.write(str(now_state))
-    mode_file.close()
-    time.sleep(5)
+def write_file(file_path, write_inform):
+    rt_file = open(file_path, "wt")
+    rt_file.write(str(write_inform))
+    rt_file.close()
+    time.sleep(0.1)
 
 
 def read_jsonfile(file_path):
@@ -274,7 +280,7 @@ def read_faceresultfile(file_path):
         now_time = time.time()
         with open(file_path, 'r') as f:
             lines = f.readlines()
-            f_name = lines[0].strip()
+            f_name = str(lines[0].strip())
             f_time = float(lines[1].strip())
             '''
             time_interval = int(now_time - f_time)
@@ -316,6 +322,52 @@ def dict_realtimedb_decode_smarthome(dict_data):
     return_dict['gasValveEnable'] = status[8:9]
 
     return return_dict
+
+
+def client_notification_msg(dict_data):
+    # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수 / Return : Dict
+    notification_msg = ""
+    sensor = dict_data['sensor']
+    hometemp = sensor['hometemp']
+    openweather = sensor['openweather']
+    smarthome = dict_data['smarthome']
+    status = smarthome['status']
+    smarthome_dict = {}
+
+    smarthome_dict['mode'] = status[0:1]
+    smarthome_dict['airconEnable'] = status[1:2]
+    smarthome_dict['airconWindPower'] = status[2:3]
+    smarthome_dict['lightEnable'] = status[3:4]
+    smarthome_dict['lightBrightness'] = status[4:5]
+    smarthome_dict['lightColor'] = status[5:6]
+    smarthome_dict['lightMode'] = status[6:7]
+    smarthome_dict['windowOpen'] = status[7:8]
+    smarthome_dict['gasValveEnable'] = status[8:9]
+
+    if int(smarthome_dict['gasValveEnable']) == 1:
+        notification_msg = "가스벨브가 열려있어요."
+    elif int(hometemp['rain']) == 1 and int(smarthome_dict['windowOpen']) == 1:
+        notification_msg = "비가오니 창문을 닫아주세요."
+    elif (
+            (str(openweather['icon']) == "09d") or
+            (str(openweather['icon']) == "09n") or
+            (str(openweather['icon']) == "10d") or
+            (str(openweather['icon']) == "10n") or
+            (str(openweather['icon']) == "11d") or
+            (str(openweather['icon']) == "11n")
+         ) and int(smarthome_dict['windowOpen']) == 1:
+        notification_msg = "비 소식이 있으니 창문을 닫아주세요."
+    elif (
+            (str(openweather['icon']) == "13d") or
+            (str(openweather['icon']) == "13n")
+         ) and int(smarthome_dict['windowOpen']) == 1:
+        notification_msg = "눈 소식이 있으니 창문을 닫아주세요."
+    elif int(openweather['air_level']) >= 2 and int(smarthome_dict['windowOpen']) == 1:
+        notification_msg = "대기질이 나쁘니 창문을 닫아주세요."
+    else:
+        notification_msg = "none"
+
+    return notification_msg
 
 
 def dict_firestore_decode_smarthome(dict_data):
@@ -867,6 +919,11 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
     except Exception as e:
         alert_error('data.error.error',
                     "WARNING : 스마트홈 가전 변동사항 감지 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
+
+    # 사용자에게 알려야하는 사항이 있는지 확인한후, 해당 내용을 realtimeDB에 기록하기 위해 파일에 저장
+    notification_msg = client_notification_msg(rtdb_dict_data)
+    if notification_msg != "":
+        write_file(rt_file_path, notification_msg)
 
     # 현재시점에서 처리해야하는 Schedule이 있는지 확인
     print_debug("[A] Load FireStore Schedule")

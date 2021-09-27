@@ -22,6 +22,7 @@ from module.slack import slack
 
 slack_bot_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 json_file_path = "./realtimedb.json"
+rt_file_path = "./server_notification"
 firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_realtimedb_url = 'https://threeamericano-default-rtdb.firebaseio.com/'
 openweathermap_service_key = "c7446d3b017961049805343e08347b43"
@@ -49,12 +50,11 @@ def listen_callback(args):
         alert_error('ERROR : RealTime DB에서 데이터를 불러오는 중 오류가 발생하였습니다. 확인이 필요합니다.')
 
 
-mode_file_path = "./smarthome_mode"
-def read_modefile(file_path):
-    mode_file = open(file_path, "r")
-    mode_data = mode_file.readline()
-    mode_file.close()
-    return mode_data
+def read_notification_file(file_path):
+    rt_file = open(file_path, "r")
+    rt_data = rt_file.readline()
+    rt_file.close()
+    return rt_data
 
 
 # Slack Bot 개체 생성하기
@@ -69,7 +69,10 @@ rtdb = db.reference()
 
 # 파이어베이스 RealTime DB측 smarthome을 모니터링하여 자동으로 업데이트하는 것 생성
 rtdb_smarthome = db.reference().child("smarthome")
+rtdb_smarthome2 = db.reference().child("sensor").child("hometemp")
 rtdb_smarthome.listen(listen_callback)
+rtdb_smarthome2.listen(listen_callback)
+
 
 # OpenWeatherAPI 개체 생성하기
 ow = openweathermap_api.OpenWeatherAPI(service_key=openweathermap_service_key)
@@ -79,9 +82,18 @@ ow = openweathermap_api.OpenWeatherAPI(service_key=openweathermap_service_key)
 # 반복 실행
 #
 ##############################################################################
+notification_before = ""
 try:
     while True:
         time.sleep(1)
+        # 작성할 notification 파일 읽어오기
+        notification_now = read_notification_file(rt_file_path)
+        if notification_now != notification_before:
+             # 파베에 작성 ㄱ
+             rtdb.child("server").update({"notification": notification_now})
+             notification_before = notification_now
+             print("RealtimeDB notification 작성 - %r" % notification_now)
+
         # 날씨API를 통해 값 가져오기
         now_interval = time.time() - weather_get_latest
         if now_interval < weather_get_interval:
@@ -108,3 +120,4 @@ try:
 
 except KeyboardInterrupt:
     quit()
+
