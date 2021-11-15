@@ -11,7 +11,7 @@ firebase_admin.initialize_app(cred,{
 })
 
 dir = db.reference()
-dir.update({'car':'fuckyou'})
+dir.update({'car':'hello'})
 
 i = 0 
 while True:
