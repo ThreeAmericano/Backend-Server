@@ -20,7 +20,7 @@ https://slowbootkernelhacks.blogspot.com/2020/09/wireguard-vpn.html
 
 ## VPN Sepc
 
-IP : 211.179.42.130 (VPN Network : 10.6.0.1)
+IP : <<SERVER IP>> (VPN Network : 10.6.0.1)
 
 PORT : 51820 (UDP)
 

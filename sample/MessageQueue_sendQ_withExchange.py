@@ -7,7 +7,7 @@ import pika
 #
 # #####################################
 cred = pika.PlainCredentials('rabbit','MQ321') #MQTT계정 ID,PW를 차례로 입력
-connection = pika.BlockingConnection(pika.ConnectionParameters(host='211.179.42.130',port=5672,credentials=cred)) #MQTT서버의 IP, Port를 입력
+connection = pika.BlockingConnection(pika.ConnectionParameters(host='<<SERVER IP>>',port=5672,credentials=cred)) #MQTT서버의 IP, Port를 입력
 
 channel = connection.channel()
 

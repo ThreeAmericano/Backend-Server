@@ -720,7 +720,7 @@ def on_mqtt_smarthome(channel, method_frame, header_frame, body):
 
 def thread_consume_queue():
     # RabbitMQ 연결 및 정보등록
-    rb2 = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+    rb2 = rabbitmq_clinet.RabbitmqClient('<<SERVER IP>>', 5672, 'rabbit', 'MQ321')
     conn = rb2.connect_server()
     time.sleep(0.01)
 
@@ -734,7 +734,7 @@ def thread_consume_queue():
 
 def thread_consume_smarthome():
     # RabbitMQ 연결 및 정보등록
-    rb3 = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+    rb3 = rabbitmq_clinet.RabbitmqClient('<<SERVER IP>>', 5672, 'rabbit', 'MQ321')
     conn = rb3.connect_server()
     time.sleep(0.01)
 
@@ -748,7 +748,7 @@ def thread_consume_smarthome():
 
 def mqtt_publish(routing_key, message):
     # 커넥션 생성
-    rb = rabbitmq_clinet.RabbitmqClient('211.179.42.130', 5672, 'rabbit', 'MQ321')
+    rb = rabbitmq_clinet.RabbitmqClient('<<SERVER IP>>', 5672, 'rabbit', 'MQ321')
     mqtt_conn = rb.connect_server()
     time.sleep(0.01)
 
