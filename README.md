@@ -8,16 +8,17 @@
 
 ```c#
 📂Backend-Server
-	┗ 📁firebase-python-sdk-key //파이어베이스 접속을 위한 KEY를 보관
-		┗ 📃<firebase-sdk-key>.json
-	┗ 📁module //각 모듈라이브러리를 저장
-        ┗ 📁rabbitmq //MQTT를 사용하기위한 모듈
-        ┗ 📁slack //slack을 사용하기위한 모듈
-        ┗ 📁weather_api //날씨API를 사용하기위한 모듈
-	┗ 📃programstart_manager.py //각 프로그램 총괄관리
-	┗ 📃backend_process.py //MQTT 명령 처리 프로그램
-	┗ 📃realtimedb_connect.py //파이어베이스 RealTimeDB를 접속관리하는 프로그램
-	┗ 📃realtimedb.json //RealTimeDB에 현황을 파일로 실시간 업데이트
+┗ 📁firebase-python-sdk-key //파이어베이스 접속을 위한 KEY를 보관
+  ┗ 📃<firebase-sdk-key>.json
+  ┗ 📁module //각 모듈라이브러리를 저장
+    ┗ 📁rabbitmq //MQTT를 사용하기위한 모듈
+    ┗ 📁slack //slack을 사용하기위한 모듈
+    ┗ 📁weather_api //날씨API를 사용하기위한 모듈
+┗ 📃programstart_manager.py //각 프로그램 총괄관리
+┗ 📃backend_process.py //MQTT 명령 처리 프로그램
+┗ 📃realtimedb_connect.py //파이어베이스 RealTimeDB를 접속관리하는 프로그램
+┗ 📃realtimedb.json //RealTimeDB에 현황을 파일로 실시간 업데이트
+┗ 📃server_notification //RealTimeDB에 업로드할 사용자 추천 행동 값
 ```
 
   <br>
@@ -40,15 +41,17 @@
 
 🚫 각 기기(안드로이드,웹오에스)로 부터 받은 스케쥴값을 파이어베이스에 추가하는 기능 구현해야함.
 
-⬜ 스케쥴 type이 once인 데이터는 실행후 삭제한다. (테스트 필요)
+✅ 스케쥴 type이 once인 데이터는 실행후 삭제한다. (title중심 -> )
 
 🚫 data.smarthome(clone)을 consume(수신)하여 작업 체크
 
-⬜ 각 센서 및 API 정보를 수집하여 사용자에게 행동 추천
+✅ 각 센서 및 API 정보를 수집하여 사용자에게 행동 추천
 
   <br>
 
 ## 실행
+
+아래 명령을 통해 하위프로그램 전체 실행
 
 ```shell
 sudo python3 programstart_manager.py
@@ -56,13 +59,9 @@ sudo python3 programstart_manager.py
 
 <br>
 
-
-
-
-
 ___
 
-
+<br>
 
 ### programstart_manager
 
@@ -78,11 +77,11 @@ import multiprocessing as mp
 from module.slack import slack
 ```
 
-
+<br>
 
 ---
 
-
+<br>
 
 ### realtimedb_connect
 
@@ -102,11 +101,11 @@ from module.weather_api import openweathermap_api
 from module.slack import slack
 ```
 
-
+<br>
 
 ---
 
-
+<br>
 
 ### backend_process
 
@@ -131,11 +130,12 @@ from module.slack import slack
    	┗ include requests
 ```
 
+<br>
 
+## 스마트홈 가전제어 프로토콜 (RealTime DB, MQTT 메세지)
 
-
-
-## 스마트홈 제어 (RealTime DB, MQTT 메세지)
+아래 그림 8자리와 더불어 프로토콜 최좌측에 가전모드값 추가. (총 9자리)
 
 ![](./readme_file/img/smarthome_protocol.png)
 
+<br>

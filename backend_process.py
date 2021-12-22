@@ -2,7 +2,7 @@
 ##############################################################################
 #
 #       [ BackEnd Processing Program ]
-#   수정일 : 2021-09-16
+#   수정일 : 2021-09-22
 #   작성자 : 최현식(chgy2131@naver.com)
 #
 #   변경점
@@ -13,11 +13,10 @@
 #        - MQTT 메세지 consume(수신)시에 사용하는 채널을 분리합니다.
 #        - 파이어스토어 스케쥴 부분 구성 변경에 따른 관련 함수 수정
 #        - 얼굴인식을 독립적인 프로세스로 진행함.
-#        - 파이어스토어의 alarm, modes, schedule 부분을 리스너를 통해 동작하도록 수정
-#        - 스케쥴을 명령을 이제 한번만 보냅니다. (지속체크 x)
+#        - 파이어스토어의 alarm, modes 부분을 리스너를 통해 동작하도록 수정
+#        - 스케쥴 repet이 false인(단발성 스케쥴) 데이터는 실행 후 삭제한다.
 #   해야할거
-#        - 스케쥴 repet이 false인(단발성 스케쥴) 데이터는 실행 후 삭제한다. (테스트 필요)
-#        - 각 센서 및 API 정보를 수집하여 사용자에게 행동 추천
+#        - 센서값에 따른 관련동작을 사용자에게 추천
 #
 ##############################################################################
 
@@ -28,6 +27,8 @@
 #
 ##############################################################################
 import time
+from datetime import datetime
+from datetime import timedelta
 import threading
 import json
 import firebase_admin
@@ -44,7 +45,7 @@ slack_token = "xoxb-2362622259573-2358980968998-mSTtdyrrEoh7fNjXdYb7wYOX"
 firebase_key_path = './firebase-python-sdk-key/threeamericano-firebase-adminsdk-ejh8q-d74c5b0c68.json'
 firebase_project_name = 'threeamericano'
 json_file_path = "./realtimedb.json"
-mode_file_path = "./smarthome_mode"
+rt_file_path = "./server_notification"
 stream_url = "http://10.8.0.2:8090/stream/video.mjpeg"
 stream_detecttime = 15
 stream_limittime = 60
@@ -109,13 +110,30 @@ def receive_car_start_facer(json_data):
                     "ERROR : 얼굴인식 종료신호 메세지를 작성/발행 중 오류가 발생했습니다. *오류명: %r" % str(e))
         return False
 
+    # 얼굴인식 결과로 받아온 UID를 이용하여 이름값을 받아옴.
+    print("=======> %r" % fr_name)
+    user_name = "fail"
+    try:
+        if (fr_name != "none") or (fr_name != "fail"):
+            # 파이어베이스에서 해당 회원(UID)의 이름을 가져옴
+            users_ref = db.collection(u'user_account').document(fr_name)
+            name_docs = users_ref.get()
+            name_docs_dict = name_docs.to_dict()
+            user_name = name_docs_dict['name']
+        else:
+            print("ABCDEK")
+    except Exception as e:
+        print("얼굴인식 실패 예외처리: %r" % str(e))
+
     # 얼굴인식 결과값을 다시 자동차에게 반환
     docs_json_data = {}
     try:
         docs_json_data['Producer'] = "server"
         docs_json_data['command'] = "return_facer"
-        docs_json_data['result'] = fr_name  # 해당 값이 Exception / Error / None 인 경우 예외임.
+        docs_json_data['result'] = fr_name  # 해당 값이 Exception / Error / None / fail 인 경우 예외임.
+        docs_json_data['name'] = user_name  # 해당 값이 fail인 경우 user_account에 이름이 없는 경우임.
         message = json.dumps(docs_json_data, ensure_ascii=False)
+        print("frname %r" % str(message))
     except Exception as e:
         alert_error('webos.car.error',
                     "ERROR : 얼굴인식 결과 메세지를 보내는 도중 오류가 발생했습니다. *오류명: %r" % str(e))
@@ -243,11 +261,11 @@ def alert_error(routing_key, message):
         return False
 
 
-def write_mode_state(file_path, now_state):
-    mode_file = open(file_path, "wt")
-    mode_file.write(str(now_state))
-    mode_file.close()
-    time.sleep(5)
+def write_file(file_path, write_inform):
+    rt_file = open(file_path, "wt")
+    rt_file.write(str(write_inform))
+    rt_file.close()
+    time.sleep(0.1)
 
 
 def read_jsonfile(file_path):
@@ -262,7 +280,7 @@ def read_faceresultfile(file_path):
         now_time = time.time()
         with open(file_path, 'r') as f:
             lines = f.readlines()
-            f_name = lines[0].strip()
+            f_name = str(lines[0].strip())
             f_time = float(lines[1].strip())
             '''
             time_interval = int(now_time - f_time)
@@ -304,6 +322,52 @@ def dict_realtimedb_decode_smarthome(dict_data):
     return_dict['gasValveEnable'] = status[8:9]
 
     return return_dict
+
+
+def client_notification_msg(dict_data):
+    # RealTimeDB를 통해 확인한 스마트홈의 가전들의 현재상태를, 각각의 변수로 변환해주는 함수 / Return : Dict
+    notification_msg = ""
+    sensor = dict_data['sensor']
+    hometemp = sensor['hometemp']
+    openweather = sensor['openweather']
+    smarthome = dict_data['smarthome']
+    status = smarthome['status']
+    smarthome_dict = {}
+
+    smarthome_dict['mode'] = status[0:1]
+    smarthome_dict['airconEnable'] = status[1:2]
+    smarthome_dict['airconWindPower'] = status[2:3]
+    smarthome_dict['lightEnable'] = status[3:4]
+    smarthome_dict['lightBrightness'] = status[4:5]
+    smarthome_dict['lightColor'] = status[5:6]
+    smarthome_dict['lightMode'] = status[6:7]
+    smarthome_dict['windowOpen'] = status[7:8]
+    smarthome_dict['gasValveEnable'] = status[8:9]
+
+    if int(smarthome_dict['gasValveEnable']) == 1:
+        notification_msg = "가스벨브가 열려있어요."
+    elif int(hometemp['rain']) == 1 and int(smarthome_dict['windowOpen']) == 1:
+        notification_msg = "비가오니 창문을 닫아주세요."
+    elif (
+            (str(openweather['icon']) == "09d") or
+            (str(openweather['icon']) == "09n") or
+            (str(openweather['icon']) == "10d") or
+            (str(openweather['icon']) == "10n") or
+            (str(openweather['icon']) == "11d") or
+            (str(openweather['icon']) == "11n")
+         ) and int(smarthome_dict['windowOpen']) == 1:
+        notification_msg = "비 소식이 있으니 창문을 닫아주세요."
+    elif (
+            (str(openweather['icon']) == "13d") or
+            (str(openweather['icon']) == "13n")
+         ) and int(smarthome_dict['windowOpen']) == 1:
+        notification_msg = "눈 소식이 있으니 창문을 닫아주세요."
+    elif int(openweather['air_level']) >= 2 and int(smarthome_dict['windowOpen']) == 1:
+        notification_msg = "대기질이 나쁘니 창문을 닫아주세요."
+    else:
+        notification_msg = "none"
+
+    return notification_msg
 
 
 def dict_firestore_decode_smarthome(dict_data):
@@ -510,17 +574,16 @@ def check_schedule_right(dict_data):
         raise Exception("인자값이 딕셔너리 클래스가 아닙니다.")
 
     # 필수 값이 있는지 확인
-    temp = (dict_data['UID'])
-    temp = (dict_data['Title'])
+    temp = (dict_data['title'])
     temp = (dict_data['modeNum'])
+    temp = (dict_data['enabled'])
+    temp = (dict_data['startTime'])
 
     # 단발성 / 반복성에 따른 데이터가 있는지 확인
     if dict_data['repeat'] == False:
-        temp = (dict_data['Active_date'])
+        temp = (dict_data['activeDate'])
     elif dict_data['repeat'] == True:
-        temp = (dict_data['Enabled'])
-        temp = (dict_data['Daysofweek'])
-        temp = (dict_data['Start_time'])
+        temp = (dict_data['daysOfWeek'])
     else:
         raise Exception("해당 문서에 'repeat'값에 형식이 잘못되었습니다. 실행함수:check_schedule_right. ")
 
@@ -536,44 +599,40 @@ def check_schedule_right(dict_data):
 def check_schedule_now(dict_data):
     global latest_schedule_check
 
+    check_state = False
+    now_time = int(time.strftime("%H%M", time.localtime(time.time())))
+    now_date = int(time.strftime("%Y%m%d", time.localtime(time.time())))
+    start_time = int(dict_data['startTime'])
+
     # 최근 스케줄 동작시점과 비교하여, 현재시간이 그 시점보다 클경우에만 스케쥴 확인 진행
-    temp = int(time.strftime("%H%M", time.localtime(time.time())))
-    if latest_schedule_check >= temp:
+    if latest_schedule_check >= now_time:
+        return False
+
+    # 공통 조건 확인
+    if not dict_data['enabled']:
+        return False
+
+    if (start_time) <= now_time <= (start_time + 1):
+        check_state = True
+    else:
         return False
 
     # 단발성/반복성에 따른 스케쥴 상세체크
-    check_state = False
     if dict_data['repeat'] == False:
         # 일회성 로직인 경우
-        active_time = int(re.sub(r'[^0-9]', '', str(dict_data['Active_date'])[0:16]))
-        now_time = int(time.strftime("%Y%m%d%H%M", time.localtime(time.time())))
+        active_date = int(re.sub(r'[^0-9]', '', str(dict_data['activeDate'])[0:10]))
+        print("{0} vs {1}".format(active_date, now_date))
 
-        # 확인 조건문
-        if (active_time) <= now_time <= (active_time + 1):
+        if active_date == now_date:
             check_state = True
         else:
-            check_state = False
+            return False
 
     elif dict_data['repeat'] == True:
-        # 실행해야되는건지 일단 확인
-        time.sleep(0.0001)
-        if not dict_data['Enabled']:
-            return False
-
         # 주기적 로직인 경우
-        now_dayoftheweek = dict_data['Daysofweek'][int(time.strftime("%w", time.localtime(time.time())))]  # 동작 요일 확인
+        now_dayoftheweek = dict_data['daysOfWeek'][int(time.strftime("%w", time.localtime(time.time())))]  # 동작 요일 확인
         if not now_dayoftheweek:
             return False
-
-        # 일단 STR을 INT형으로 바꾼후 비교문 연산
-        now_time = int(time.strftime("%H%M", time.localtime(time.time())))
-        start_time = int(dict_data['Start_time'])
-
-        time.sleep(0.0001)
-        if (start_time) <= now_time <= (start_time + 1):
-            check_state = True
-        else:
-            check_state = False
     else:
         raise Exception("해당 문서에 'repeat'값에 형식이 잘못되었습니다. 실행함수:check_schedule_now. ")
 
@@ -861,6 +920,11 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
         alert_error('data.error.error',
                     "WARNING : 스마트홈 가전 변동사항 감지 중 오류가 발생하였습니다. 확인이 필요합니다. *오류명 : %r" % str(e))
 
+    # 사용자에게 알려야하는 사항이 있는지 확인한후, 해당 내용을 realtimeDB에 기록하기 위해 파일에 저장
+    notification_msg = client_notification_msg(rtdb_dict_data)
+    if notification_msg != "":
+        write_file(rt_file_path, notification_msg)
+
     # 현재시점에서 처리해야하는 Schedule이 있는지 확인
     print_debug("[A] Load FireStore Schedule")
     #try:
@@ -929,8 +993,11 @@ while True:  # 메인루프에 전체적으로 딜레이시간을 주는걸로? 
                 delete_schedule(schedule_dict['title'])
 
     # 스케쥴 관련 동작을 실행한경우 '최종스케줄 실행시간(lateset_schedule_check)' 갱신
+    now_time_hhmm = int(time.strftime("%H%M", time.localtime(time.time())))
     if update_latest_schedule_run_time:
-        latest_schedule_check = int(time.strftime("%H%M", time.localtime(time.time())))
+        latest_schedule_check = now_time_hhmm
+    elif (now_time_hhmm <= 1):
+        latest_schedule_check = -1
     '''
     except Exception as e:
         alert_error("data.error.error",
