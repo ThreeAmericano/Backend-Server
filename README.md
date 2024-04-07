@@ -139,3 +139,21 @@ from module.slack import slack
 ![](./readme_file/img/smarthome_protocol.png)
 
 <br>
+
+<br>
+
+<br>
+
+# Firebase 정보 참고
+
+### Authentication
+<img width="957" alt="image" src="https://github.com/ThreeAmericano/Backend-Server/assets/10378777/76041f34-e857-4bae-9c1e-22582bf287ef">
+
+### Firestore 
+<img width="1280" alt="image" src="https://github.com/ThreeAmericano/Backend-Server/assets/10378777/25c5c503-4b41-4b41-a230-9353f77218a3">
+
+### Realtime DB
+<img width="1279" alt="image" src="https://github.com/ThreeAmericano/Backend-Server/assets/10378777/903aa011-b6c2-4c15-add2-708cbcff4a33">
+
+
+
